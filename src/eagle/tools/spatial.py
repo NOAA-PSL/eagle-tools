@@ -151,4 +151,4 @@ def main(config):
             fname = f"{config['output_path']}/spatial.{varname}.{config['model_type']}.nc"
         xda.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f" --- Done Computing Spatial Error Metrics --- \n")
+    logger.info(f" --- Done Storing Spatial Error Metrics --- \n")

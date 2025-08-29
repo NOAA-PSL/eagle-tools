@@ -167,4 +167,4 @@ def main(config):
         fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
         xda.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f" --- Done Computing Error Metrics --- \n")
+    logger.info(f" --- Done Storing Error Metrics --- \n")

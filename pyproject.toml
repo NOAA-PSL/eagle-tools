@@ -24,6 +24,7 @@ dependencies = [
     "scipy",
     "pandas",
     "xarray",
+    "zarr<3",
     "ufs2arco",
     "anemoi-datasets",
     "anemoi-inference",

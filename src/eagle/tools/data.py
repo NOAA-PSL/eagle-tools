@@ -8,7 +8,6 @@ from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_datas
 
 logger = logging.getLogger("eagle.tools")
 
-_extra_coords = get_xy()
 
 def get_xy():
     xds = xr.open_zarr("/pscratch/sd/t/timothys/nested-eagle/v0/data/hrrr.zarr")
@@ -62,7 +61,7 @@ def open_anemoi_inference_dataset(path, model_type, lam_index=None, levels=None,
                 xds[key] = ids[key] if "variable" not in ids[key].dims else ids[key].isel(variable=0, drop=True)
                 xds = xds.set_coords(key)
             else:
-                xds[key] = _extra_coords[key]
+                xds[key] = get_xy()[key]
                 xds = xds.set_coords(key)
         xds = trim_xarray_edge(xds, trim_edge)
     return xds

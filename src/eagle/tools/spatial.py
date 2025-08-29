@@ -7,18 +7,16 @@ import xarray as xr
 import pandas as pd
 
 import ufs2arco.utils
-from ufs2arco.mpi import MPITopology
 
+from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.metrics import get_gridcell_area_weights
-from eagle.tools.postprocess import regrid_nested_to_global
 
-logger = logging.getLogger("ufs2arco")
+logger = logging.getLogger("eagle.tools")
 
 
 def postprocess(xds, keep_t0=None):
 
-    keep_t0 = keep_t0 if keep_t0 is not None else "cell" not in xds.dims
     if keep_t0:
         t0 = pd.Timestamp(xds["time"][0].values)
         xds["t0"] = xr.DataArray(t0, coords={"t0": t0})
@@ -58,13 +56,10 @@ def mae(target, prediction, weights=1., keep_t0=False):
     return postprocess(xds, keep_t0)
 
 
-def compute_spatial_metrics():
+def main(config):
     """Compute grid cell area weighted RMSE and MAE
 
     Note that the arguments documented here are passed via a config yaml as in
-
-    Example:
-        >>> python compute_error_metrics.py recipe.yaml
 
     Args:
         forecast_path (str): directory containing forecast datasets to compare against a verification dataset. For now, the convention is that, within this directory, each forecast is in a separate netcdf file named as "<initial_date>.<lead_time>.nc", where initial_date = "%Y-%m-%dT%H" and lead_time is defined below
@@ -77,12 +72,7 @@ def compute_spatial_metrics():
         end_date (str): date of last last IC to grab, in %Y-%m-%dTH format
         freq (str): frequency over which to grab initial condition dates, passed to pandas.date_range
     """
-
-    if len(sys.argv) != 2:
-        raise Exception("Did not get an argument. Usage is:\npython compute_error_metrics.py recipe.yaml")
-
-    config = open_yaml_config(sys.argv[1])
-    topo = MPITopology(log_dir=config.get("log_path", "./logs/spatial-metrics"))
+    setup_simple_log()
 
     # options used for verification and inference datasets
     model_type = config["model_type"]
@@ -101,39 +91,19 @@ def compute_spatial_metrics():
     )
 
     # Area weights
-    if "global" in model_type:
-        latlon_weights = get_gridcell_area_weights(vds)
-
-    elif model_type == "nested-lam":
-        latlon_weights = 1. # Assume LAM is equal area
-
-    elif model_type == "lam":
-        latlon_weights = 1. # Assume LAM is equal area
-
-    else:
-        raise NotImplementedError
+    latlon_weights = get_gridcell_area_weights(vds, model_type)
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
 
     rmse_container = list() if keep_t0 else None
     mae_container = list() if keep_t0 else None
 
-    n_dates = len(dates)
-    n_batches = ceil(n_dates / topo.size)
+    logger.info(f" --- Computing Spatial Error Metrics --- ")
+    logger.info(f"Initial Conditions:\n{dates}")
+    for t0 in dates:
 
-    logger.info(f" --- Starting Metrics Computation --- ")
-    for batch_idx in range(n_batches):
-
-        date_idx = (batch_idx * topo.size) + topo.rank
-        if date_idx + 1 > n_dates:
-            break
-        try:
-            t0 = dates[date_idx]
-        except:
-            logger.info(f"trying to get this date: {date_idx} / {n_dates}")
-            raise
         st0 = t0.strftime("%Y-%m-%dT%H")
-        logger.info(f"\tProcessing {st0}, batch {batch_idx} / {n_batches}")
+        logger.info(f"Processing {st0}")
         if config.get("from_anemoi", True):
 
             fds = open_anemoi_inference_dataset(
@@ -150,13 +120,6 @@ def compute_spatial_metrics():
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
                 **subsample_kwargs,
-            )
-        if model_type == "nested-global":
-            fds = regrid_nested_to_global(
-                fds,
-                ds_out=vds.coords.to_dataset().load(),
-                lam_index=lam_index,
-                regrid_weights_filename=config.get("regrid_weights_path", "conservative_weights.nc"),
             )
 
         tds = vds.sel(time=fds.time.values).load()
@@ -176,36 +139,16 @@ def compute_spatial_metrics():
                 rmse_container += this_rmse / len(dates)
                 mae_container += this_mae / len(dates)
 
-        logger.info(f"\tDone with {st0}")
+        logger.info(f"Done with {st0}")
     logger.info(f" --- Done Computing Metrics --- \n")
-    if keep_t0:
-        rmse_container = topo.gather(rmse_container)
-        mae_container = topo.gather(mae_container)
-    else:
-        root_rmse = np.zeros_like(rmse_container
-        root_mae = 0*mae_container
-        topo.sum(rmse_container, root_rmse)
-        topo.sum(mae_container, root_mae)
 
-
-    if keep_t0:
-        rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])
-        rmse_container = xr.concat(rmse_container, dim="t0")
-        fname = f"{config['output_path']}/spatial.rmse.perIC.{config['model_type']}.nc"
-    else:
-        rmse_container = root_rmse
-        fname = f"{config['output_path']}/spatial.rmse.{config['model_type']}.nc"
-
-    rmse_container.to_netcdf(fname)
-
-    if keep_t0:
-        mae_container = sorted(mae_container, key=lambda xds: xds.coords["t0"])
-        mae_container = xr.concat(mae_container, dim="t0")
-        fname = f"{config['output_path']}/spatial.mae.perIC.{config['model_type']}.nc"
-    else:
-        mae_container = root_mae
-        fname = f"{config['output_path']}/spatial.mae.{config['model_type']}.nc"
-
-    mae_container.to_netcdf(fname)
-
-        logger.info(f" --- Done Storing Results at {config['output_path']} --- \n")
+    logger.info(f" --- Combining & Storing Results --- ")
+    for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
+        if keep_t0:
+            fname = f"{config['output_path']}/spatial.{varname}.perIC.{config['model_type']}.nc"
+            xda = xr.concat(xda, dim="t0")
+        else:
+            fname = f"{config['output_path']}/spatial.{varname}.{config['model_type']}.nc"
+        xda.to_netcdf(fname)
+        logger.info(f"Stored result: {fname}")
+    logger.info(f" --- Done Computing Spatial Error Metrics --- \n")

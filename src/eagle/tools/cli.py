@@ -4,6 +4,7 @@ import yaml
 # Import the main functions from your other modules
 from eagle.tools.metrics import main as metrics_main
 from eagle.tools.spatial import main as spatial_main
+from eagle.tools.utils import open_yaml_config
 
 @click.group()
 def cli():

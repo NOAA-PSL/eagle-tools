@@ -10,44 +10,40 @@ import ufs2arco.utils
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset
-from eagle.tools.postprocess import regrid_nested_to_global
 
 logger = logging.getLogger("eagle.tools")
 
 
-def get_gridcell_area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12):
+def get_gridcell_area_weights(xds, model_type):
+
+    if "global" in model_type:
+        return _area_weights(xds)
+
+    elif model_type in ("lam", "nested-lam"):
+        return 1. # Assume LAM is equal area
+
+    else:
+        raise NotImplementedError
+
+
+def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12):
     """This is a nice code block copied from anemoi-graphs"""
 
 
-    elif model_type == "nested-lam":
-        latlon_weights = 1. # Assume LAM is equal area
+    x = radius * np.cos(np.deg2rad(xds["latitude"])) * np.cos(np.deg2rad(xds["longitude"]))
+    y = radius * np.cos(np.deg2rad(xds["latitude"])) * np.sin(np.deg2rad(xds["longitude"]))
+    z = radius * np.sin(np.deg2rad(xds["latitude"]))
+    sv = SphericalVoronoi(
+        points=np.stack([x,y,z], -1),
+        radius=radius,
+        center=center,
+        threshold=threshold,
+    )
+    area_weight = sv.calculate_areas()
+    if unit_mean:
+        area_weight /= area_weight.mean()
 
-    elif model_type == "lam":
-        latlon_weights = 1. # Assume LAM is equal area
-
-    else:
-        raise NotImplementedError
-
-    if "global" in model_type:
-        x = radius * np.cos(np.deg2rad(xds["latitude"])) * np.cos(np.deg2rad(xds["longitude"]))
-        y = radius * np.cos(np.deg2rad(xds["latitude"])) * np.sin(np.deg2rad(xds["longitude"]))
-        z = radius * np.sin(np.deg2rad(xds["latitude"]))
-        sv = SphericalVoronoi(
-            points=np.stack([x,y,z], -1),
-            radius=radius,
-            center=center,
-            threshold=threshold,
-        )
-        area_weight = sv.calculate_areas()
-        if unit_mean:
-            area_weight /= area_weight.mean()
-
-        return area_weight
-
-    elif model_type in ("lam", "nested-lam"):
-        return 1.
-    else:
-        raise NotImplementedError
+    return area_weight
 
 
 def postprocess(xds):
@@ -132,10 +128,11 @@ def main(config):
     rmse_container = list()
     mae_container = list()
 
-    logger.info(f" --- Starting Metrics Computation --- ")
+    logger.info(f" --- Computing Error Metrics --- ")
+    logger.info(f"Initial Conditions:\n{dates}")
     for t0 in dates:
         st0 = t0.strftime("%Y-%m-%dT%H")
-        logger.info(f"\tProcessing {st0}")
+        logger.info(f"Processing {st0}")
         if config.get("from_anemoi", True):
 
             fds = open_anemoi_inference_dataset(
@@ -153,31 +150,21 @@ def main(config):
                 trim_edge=config.get("trim_forecast_edge", None),
                 **subsample_kwargs,
             )
-        if model_type == "nested-global":
-            fds = regrid_nested_to_global(
-                fds,
-                ds_out=vds.coords.to_dataset().load(),
-                lam_index=lam_index,
-                regrid_weights_filename=config.get("regrid_weights_path", "conservative_weights.nc"),
-            )
 
         tds = vds.sel(time=fds.time.values).load()
 
         rmse_container.append(rmse(target=tds, prediction=fds, weights=latlon_weights))
         mae_container.append(mae(target=tds, prediction=fds, weights=latlon_weights))
 
-        logger.info(f"\tDone with {st0}")
+        logger.info(f"Done with {st0}")
     logger.info(f" --- Done Computing Metrics --- \n")
-
-    logger.info(f" --- Gathering results on root process ---")
-    rmse_container = topo.gather(rmse_container)
-    mae_container = topo.gather(mae_container)
 
     logger.info(f" --- Combining & Storing Results --- ")
     rmse_container = xr.concat(rmse_container, dim="t0")
     mae_container = xr.concat(mae_container, dim="t0")
 
-    rmse_container.to_netcdf(f"{config['output_path']}/rmse.{config['model_type']}.nc")
-    mae_container.to_netcdf(f"{config['output_path']}/mae.{config['model_type']}.nc")
-
-    logger.info(f" --- Done Storing Results at {config['output_path']} --- \n")
+    for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
+        fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
+        xda.to_netcdf(fname)
+        logger.info(f"Stored result: {fname}")
+    logger.info(f" --- Done Computing Error Metrics --- \n")

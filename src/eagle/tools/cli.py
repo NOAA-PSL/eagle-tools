@@ -23,6 +23,18 @@ def inference(config_file):
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
+def postprocess(config_file):
+    """
+    Run postprocessing.
+    """
+    from eagle.tools.postprocess import main as postprocess_main
+
+    config = open_yaml_config(config_file)
+    postprocess_main(config)
+
+
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
 def metrics(config_file):
     """
     Compute error metrics.

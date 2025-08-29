@@ -19,6 +19,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "click",
     "numpy",
     "scipy",
     "pandas",
@@ -43,3 +44,6 @@ where = ["src"]
 
 [tool.setuptools_scm]
 write_to = "src/eagle/tools/_version.py"
+
+[project.scripts]
+eagle-tools = "eagle.tools.cli:cli"

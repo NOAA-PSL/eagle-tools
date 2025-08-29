@@ -22,26 +22,3 @@ def open_yaml_config(config_filename: str):
         os.makedirs(config["output_path"])
 
     return config
-
-
-def drop_forcing_vars(xds):
-    for key in [
-        "cos_julian_day",
-        "sin_julian_day",
-        "cos_local_time",
-        "sin_local_time",
-        "cos_latitude",
-        "sin_latitude",
-        "cos_longitude",
-        "sin_longitude",
-        "orog",
-        "orography",
-        "geopotential_at_surface",
-        "land_sea_mask",
-        "lsm",
-        "insolation",
-        "cos_solar_zenith_angle",
-    ]:
-        if key in xds:
-            xds = xds.drop_vars(key)
-    return xds

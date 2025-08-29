@@ -99,3 +99,4 @@ def main(config):
             main_config=config,
         )
         logger.info(f"Done with {d}")
+    logger.info(f" --- Done Running Inference --- \n")

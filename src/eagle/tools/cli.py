@@ -1,6 +1,8 @@
 import click
 import yaml
 
+from eagle.tools.utils import open_yaml_config
+
 @click.group()
 def cli():
     """A CLI for the Eagle Tools suite."""
@@ -9,12 +11,11 @@ def cli():
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
-def spatial(config_file):
+def inference(config_file):
     """
-    Run spatial operations using a configuration file.
+    Run inference.
     """
     from eagle.tools.inference import main as inference_main
-    click.echo(f"Running spatial with config: {config_file}")
 
     config = open_yaml_config(config_file)
     inference_main(config)
@@ -24,10 +25,9 @@ def spatial(config_file):
 @click.argument('config_file', type=click.Path(exists=True))
 def metrics(config_file):
     """
-    Run metrics operations using a configuration file.
+    Compute error metrics.
     """
     from eagle.tools.metrics import main as metrics_main
-    click.echo(f"Running metrics with config: {config_file}")
 
     config = open_yaml_config(config_file)
     metrics_main(config)
@@ -37,10 +37,9 @@ def metrics(config_file):
 @click.argument('config_file', type=click.Path(exists=True))
 def spatial(config_file):
     """
-    Run spatial operations using a configuration file.
+    Compute spatial error metrics.
     """
     from eagle.tools.spatial import main as spatial_main
-    click.echo(f"Running spatial with config: {config_file}")
 
     config = open_yaml_config(config_file)
     spatial_main(config)

@@ -71,7 +71,7 @@ def main(config):
     # options used for verification and inference datasets
     model_type = config["model_type"]
     lam_index = config.get("lam_index", None)
-    min_delta = config.get("min_delta_lat", 0.0045)
+    min_delta = config.get("min_delta_lat", 0.0003)
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
@@ -92,6 +92,7 @@ def main(config):
     logger.info(f"Initial Conditions:\n{dates}")
     for t0 in dates:
         st0 = t0.strftime("%Y-%m-%dT%H")
+        logger.info(f"Processing {st0}")
         if config.get("from_anemoi", True):
 
             fds = open_anemoi_inference_dataset(
@@ -118,7 +119,7 @@ def main(config):
         else:
             pspectra += this_pspectra / len(dates)
 
-        logger.info(f"\tDone with {st0}")
+        logger.info(f"Done with {st0}")
     logger.info(f" --- Done Computing Spectra --- ")
 
     logger.info(f" --- Combining & Storing Results --- ")

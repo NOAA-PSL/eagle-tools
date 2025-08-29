@@ -1,2 +1,3 @@
 # eagle-tools
-Tools for handling anemoi models
+
+Tools for processing and evaluating anemoi based EAGLE ML models

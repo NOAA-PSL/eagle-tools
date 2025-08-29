@@ -45,5 +45,17 @@ def spatial(config_file):
     spatial_main(config)
 
 
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
+def spectra(config_file):
+    """
+    Compute spectra error metrics.
+    """
+    from eagle.tools.spectra import main as spectra_main
+
+    config = open_yaml_config(config_file)
+    spectra_main(config)
+
+
 if __name__ == "__main__":
     cli()

@@ -113,3 +113,26 @@ def subsample(xds, levels=None, vars_of_interest=None):
         xds = drop_forcing_vars(xds)
 
     return xds
+
+
+def drop_forcing_vars(xds):
+    for key in [
+        "cos_julian_day",
+        "sin_julian_day",
+        "cos_local_time",
+        "sin_local_time",
+        "cos_latitude",
+        "sin_latitude",
+        "cos_longitude",
+        "sin_longitude",
+        "orog",
+        "orography",
+        "geopotential_at_surface",
+        "land_sea_mask",
+        "lsm",
+        "insolation",
+        "cos_solar_zenith_angle",
+    ]:
+        if key in xds:
+            xds = xds.drop_vars(key)
+    return xds

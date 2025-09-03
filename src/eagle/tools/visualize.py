@@ -163,64 +163,73 @@ def create_media(
 def main(config, mode):
     """Create figures or movies visually comparing predictions to targets
 
+    \b
     Note:
         All temperature fields are converted from K to degrees Celsius
 
+    \b
     Note:
         The following variables can be computed, even though they may not be in the original dataset:
         ``["wind_speed", "10m_wind_speed", "80m_wind_speed", "100m_wind_speed"]``.
         These are computed from the vector valued quantities.
 
-    Args:
-        config (dict): The main configuration dictionary containing all options.
-        mode (str): The output mode. Typically "figure" for a single static image
-            or "movie" for an animation over a time slice.
-
+    \b
     Config Args:
+        end_date (str): For figures, this is the timestamp that gets plotted.
+            For movies, all timestamps between start_date and end_date get plotted.
+        \b
         model_name (str, optional): A display name for the prediction dataset
             in plot titles. Defaults to "".
+        \b
         target_name (str, optional): A display name for the target dataset in
             plot titles. Defaults to "".
+        \b
         fig_kwargs (dict, optional): A dictionary of global figure settings to
             override defaults, such as `dpi`, `width`, `height`, and `projection`.
+        \b
         per_variable_kwargs (dict, optional): A dictionary to override plotting
             options for specific variables. Keys are variable names (e.g.,
             "2m_temperature"), and values are dictionaries of options (e.g.,
             `{"vmin": -10, "vmax": 30}`).
+        \b
         units (dict, optional): A dictionary to override the units displayed for
             specific variables.
 
+    \b
     Config Args common to metrics.py
         model_type (str): The type of model grid, one of: "global", "lam",
             "nested-lam", "nested-global".
             This determines how grid cell area weights, edge trimming, and coordinates are handled.
+        \b
         verification_dataset_path (str): The path to the anemoi dataset with target data
             used for comparison.
+        \b
         forecast_path (str): The directory path containing the forecast datasets.
+        \b
         output_path (str): The directory where the output NetCDF files will be saved, as
             f"{output_path}/{variable_name}.{t0}.{tf}.jpeg/gif/mp4" for surface variables and
             f"{output_path}/{variable_name}.level{level}.{t0}.{tf}.jpeg/gif/mp4" for 3D variables, per level
+        \b
         start_date (str): The first initial condition date to process, in any format
             interpretable by pandas.date_range.
-        end_date (str): The last initial condition date to process, in any format
-            interpretable by pandas.date_range.
-        freq (str): The frequency string for generating the date range between
-            start_date and end_date (e.g., "6h"), passed to pandas.date_range.
+        \b
         lead_time (str): A string representing the forecast lead time (e.g., "240h")
             used as part of the forecast input filename.
+        \b
         lam_index (int, optional): For nested models (e.g., model_type="nested-lam"), this integer
             specifies the number of grid points belonging to the LAM domain.
             Defaults to None.
+        \b
         levels (list, optional): A list of vertical levels to subset from the
             datasets. If None, all levels are used. Defaults to None.
             Note that all 3D variables will be plotted at all levels provided.
+        \b
         vars_of_interest (list[str], optional): A list of variable names to
             include in the analysis. If None, all variables are used. Defaults to None.
+        \b
         trim_edge (int, optional): Specifies the number of grid points to trim
             from the edges of the verification dataset. Only used for LAM or Nested configurations.
             Defaults to None.
-        trim_forecast_edge (int, optional): Specifies the number of grid points to
-            trim from the edges of the forecast dataset. Defaults to None.
     """
 
     setup_simple_log()

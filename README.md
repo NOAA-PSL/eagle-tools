@@ -19,7 +19,9 @@ installed via pip.
 ```
 conda env create -n eagle
 conda install -c conda-forge ufs2arco
+module load gcc cudnn nccl
 pip install anemoi-datasets anemoi-graphs anemoi-models anemoi-training anemoi-inference anemoi-utils anemoi-transform
+pip install flash-attn --no-build-isolation
 pip install git+https://github.com/timothyas/xmovie.git@feature/gif-scale
 pip install eagle-tools
 ```

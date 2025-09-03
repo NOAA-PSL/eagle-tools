@@ -1,9 +1,4 @@
-"""TODO List for this
-
-4. level variables
-"""
 import os
-import sys
 import yaml
 import logging
 import importlib.resources
@@ -112,6 +107,58 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     fig.set_constrained_layout(True)
     return None, None
 
+def create_media(
+    xds: xr.Dataset,
+    mode: str,
+    fname: str,
+    dpi: int,
+    width: int,
+    height: int,
+    options: dict,
+) -> None:
+
+    pixelwidth = width*dpi
+    pixelheight = height*dpi
+
+    if mode == "figure":
+
+        path = fname + ".jpeg"
+        fig = plt.figure(figsize=(width, height))
+        plot_single_timestamp(
+            xds=xds,
+            fig=fig,
+            time=0,
+            **options,
+        )
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+        logger.info(f"Stored figure at: {path}\n")
+
+    else:
+        path = fname + ".gif"
+        mov = xmovie.Movie(
+            ds,
+            plot_single_timestamp,
+            framedim="time",
+            input_check=False,
+            pixelwidth=pixelwidth,
+            pixelheight=pixelheight,
+            dpi=dpi,
+            **options
+        )
+        mov.save(
+            path,
+            progress=True,
+            overwrite_existing=True,
+            remove_frames=True,
+            framerate=10,
+            gif_framerate=10,
+            remove_movie=False,
+            gif_palette=True,
+            gif_scale=["trunc(iw/2)", "trunc(ih/2)"],
+        )
+        logger.info(f"Stored movie at: {path}\n")
+    return
+
 
 def main(config, mode):
 
@@ -169,6 +216,9 @@ def main(config, mode):
     defaults_path = importlib.resources.files("eagle.tools.config") / "defaults.yaml"
     with defaults_path.open("r") as f:
         defaults = yaml.safe_load(f)
+    rename_path = importlib.resources.files("eagle.tools.config") / "rename.yaml"
+    with rename_path.open("r") as f:
+        rename = yaml.safe_load(f)
 
     fig_kwargs = defaults["fig_kwargs"].copy()
     fig_kwargs.update(config.get("fig_kwargs", {}))
@@ -176,7 +226,8 @@ def main(config, mode):
     per_variable_kwargs["total_precipitation_6hr"] = get_precip_kwargs()
     pvk_user = config.get("per_variable_kwargs", {})
     for key, val in pvk_user.items():
-        per_variable_kwargs[key].update(val)
+        k = rename.get(key, key)
+        per_variable_kwargs[k].update(val)
     units = defaults["units"].copy()
     units.update(config.get("units", {}))
 
@@ -228,51 +279,31 @@ def main(config, mode):
         options["projection"] = fig_kwargs["projection"]
         options["projection_kwargs"] = fig_kwargs.get("projection_kwargs", {})
 
-        dpi = fig_kwargs["dpi"]
-        width = fig_kwargs["width"]
-        height = fig_kwargs["height"]
-        pixelwidth = width*dpi
-        pixelheight = height*dpi
-
         logger.info(f"Plotting {varname} with options")
         for key, val in options.items():
             logger.info(f"\t{key}: {val}")
 
-        if mode == "figure":
-
-            fig = plt.figure(figsize=(width, height))
-            itime = list(pd.Timestamp(x) for x in ds["time"].values).index(tf)
-            plot_single_timestamp(
-                xds=ds,
-                fig=fig,
-                time=itime,
-                **options,
-            )
-            fname = f"{output_dir}/{varname}.{st0}.{stf}.jpeg"
-            fig.savefig(fname, dpi=dpi, bbox_inches="tight")
-            logger.info(f"Stored figure at: {fname}\n")
+        if "level" in ds.dims:
+            for level in ds["level"].values:
+                fname = f"{output_dir}/{varname}.level{level}.{st0}.{stf}"
+                create_media(
+                    xds=ds.sel(level=level),
+                    mode=mode,
+                    fname=fname,
+                    dpi=fig_kwargs["dpi"],
+                    width=fig_kwargs["width"],
+                    height=fig_kwargs["height"],
+                    options=options,
+                )
 
         else:
-            mov = xmovie.Movie(
-                ds,
-                plot_single_timestamp,
-                framedim="time",
-                input_check=False,
-                pixelwidth=pixelwidth,
-                pixelheight=pixelheight,
-                dpi=dpi,
-                **options
+            fname = f"{output_dir}/{varname}.{st0}.{stf}"
+            create_media(
+                xds=ds,
+                mode=mode,
+                fname=fname,
+                dpi=fig_kwargs["dpi"],
+                width=fig_kwargs["width"],
+                height=fig_kwargs["height"],
+                options=options,
             )
-            fname = f"{output_dir}/{varname}.{st0}.{stf}.gif"
-            mov.save(
-                fname,
-                progress=True,
-                overwrite_existing=True,
-                remove_frames=True,
-                framerate=10,
-                gif_framerate=10,
-                remove_movie=False,
-                gif_palette=True,
-                gif_scale=["trunc(iw/2)", "trunc(ih/2)"],
-            )
-            logger.info(f"Stored movie at: {fname}\n")

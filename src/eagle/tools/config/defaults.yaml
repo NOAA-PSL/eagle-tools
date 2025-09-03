@@ -1,0 +1,41 @@
+per_variable_kwargs:
+  # See visualize.py for total_precipitation_6hr
+  10m_wind_speed:
+    cmap: cmo.tempo_r
+    vmin: 0
+    vmax: 20
+  2m_specific_humidity:
+    cmap: cmo.rain
+    vmin: 0
+    vmax: 0.025
+  2m_temperature:
+    cmap: cmo.thermal
+    vmin: -10
+    vmax: 30
+  80m_wind_speed:
+    cmap: cmo.tempo_r
+    vmin: 0
+    vmax: 20
+  specific_humidity:
+    cmap: cmo.rain
+    vmin: 0
+    vmax: 0.025
+  temperature:
+    cmap: cmo.thermal
+    vmin: -10
+    vmax: 30
+  wind_speed:
+    cmap: cmo.tempo_r
+    vmin: 0
+    vmax: 20
+
+fig_kwargs:
+  dpi: 300
+  width: 10
+  height: 7
+  projection: Robinson
+  # Orthographic Projection example
+  #projection: Orthographic
+  #projection_kwargs:
+  #  central_longitude: -120
+  #  central_latitude: 20

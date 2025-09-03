@@ -69,5 +69,17 @@ def spectra(config_file):
     spectra_main(config)
 
 
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
+def visualize(config_file):
+    """
+    Visualize the fields
+    """
+    from eagle.tools.visualize import main as visualize_main
+
+    config = open_yaml_config(config_file)
+    visualize_main(config)
+
+
 if __name__ == "__main__":
     cli()

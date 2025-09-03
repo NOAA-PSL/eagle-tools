@@ -100,6 +100,7 @@ def main(config):
                 model_type=model_type,
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
+                load=True,
                 **subsample_kwargs,
             )
         else:
@@ -108,6 +109,7 @@ def main(config):
                 config["forecast_path"],
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
+                load=True,
                 **subsample_kwargs,
             )
 

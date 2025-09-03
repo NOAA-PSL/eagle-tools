@@ -64,12 +64,12 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
 
     axs = []
     vtime = xds["time"].isel(time=time).values
-    stime = str(vtime)[:13]
+    stime = pd.Timestamp(vtime).strftime("%Y-%m-%dT%H")
 
     # get these extra options
     cbar_kwargs = kwargs.pop("cbar_kwargs", {})
     extend = kwargs.pop("extend", None)
-    t0 = kwargs.pop("t0", "")
+    st0 = kwargs.pop("st0", "")
 
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
@@ -96,7 +96,7 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     [ax.coastlines("50m") for ax in axs]
 
     label = xds.attrs.get("label", "")
-    label += f"\nt0: {t0}"
+    label += f"\nt0: {st0}"
     label += f"\nvalid: {stime}"
     fig.colorbar(
         p,
@@ -131,7 +131,9 @@ def main(config, mode):
 
     t0 = pd.Timestamp(config["start_date"])
     tf = pd.Timestamp(config["end_date"])
-    logger.info(f"Time Bounds:\n\tt0 = {t0}\n\ttf = {tf}\n")
+    st0 = t0.strftime("%Y-%m-%dT%H")
+    stf = tf.strftime("%Y-%m-%dT%H")
+    logger.info(f"Time Bounds:\n\tt0 = {st0}\n\ttf = {stf}\n")
 
     # Target dataset
     tds = open_anemoi_dataset(
@@ -149,7 +151,6 @@ def main(config, mode):
     logger.info(f"Opened Target dataset:\n{tds}\n")
 
     # Prediction dataset
-    st0 = t0.strftime("%Y-%m-%dT%H")
     pds = open_anemoi_inference_dataset(
         f"{config['forecast_path']}/{st0}.{config['lead_time']}.nc",
         model_type=model_type,
@@ -173,7 +174,9 @@ def main(config, mode):
     fig_kwargs.update(config.get("fig_kwargs", {}))
     per_variable_kwargs = defaults["per_variable_kwargs"].copy()
     per_variable_kwargs["total_precipitation_6hr"] = get_precip_kwargs()
-    per_variable_kwargs.update(config.get("per_variable_kwargs", {}))
+    pvk_user = config.get("per_variable_kwargs", {})
+    for key, val in pvk_user.items():
+        per_variable_kwargs[key].update(val)
     units = defaults["units"].copy()
     units.update(config.get("units", {}))
 
@@ -221,7 +224,7 @@ def main(config, mode):
             options["extend"] = "max" if vmax > 50 else "neither"
             logger.info(f"\ttotal_precipitation hack: setting extend based on upper limit of 50")
 
-        options["t0"] = t0
+        options["st0"] = st0
         options["projection"] = fig_kwargs["projection"]
         options["projection_kwargs"] = fig_kwargs.get("projection_kwargs", {})
 
@@ -245,7 +248,7 @@ def main(config, mode):
                 time=itime,
                 **options,
             )
-            fname = f"{output_dir}/{varname}.{t0}.{tf}.jpeg"
+            fname = f"{output_dir}/{varname}.{st0}.{stf}.jpeg"
             fig.savefig(fname, dpi=dpi, bbox_inches="tight")
             logger.info(f"Stored figure at: {fname}\n")
 
@@ -260,7 +263,7 @@ def main(config, mode):
                 dpi=dpi,
                 **options
             )
-            fname = f"{output_dir}/{varname}.{t0}.{tf}.gif"
+            fname = f"{output_dir}/{varname}.{st0}.{stf}.gif"
             mov.save(
                 fname,
                 progress=True,

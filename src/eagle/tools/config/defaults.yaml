@@ -32,13 +32,16 @@ per_variable_kwargs:
 fig_kwargs:
   dpi: 300
   width: 10
-  height: 7
+  height: 4.5
   projection: Robinson
+
   # Orthographic Projection example
-  #projection: Orthographic
-  #projection_kwargs:
-  #  central_longitude: -120
-  #  central_latitude: 20
+  # height: 7
+  # projection: Orthographic
+  # projection_kwargs:
+  #   central_longitude: -120
+  #   central_latitude: 20
+
 units:
   10m_wind_speed: m/s
   80m_wind_speed: m/s

@@ -31,10 +31,9 @@ dependencies = [
     "matplotlib",
     "cartopy",
     "cmocean",
-    "xmovie @ git+https://github.com/timothyas/xmovie.git@feature/gif-scale",
 ]
 
-# TODO:
+# These are only available on conda:
 # mpi
 # xesmf
 # 

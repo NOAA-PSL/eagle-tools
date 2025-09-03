@@ -71,15 +71,26 @@ def spectra(config_file):
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
-def visualize(config_file):
+def figures(config_file):
     """
-    Visualize the fields
+    Visualize the fields as figures
     """
     from eagle.tools.visualize import main as visualize_main
 
     config = open_yaml_config(config_file)
-    visualize_main(config)
+    visualize_main(config, mode="figure")
 
+
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
+def movies(config_file):
+    """
+    Visualize the fields as figures
+    """
+    from eagle.tools.visualize import main as visualize_main
+
+    config = open_yaml_config(config_file)
+    visualize_main(config, mode="movie")
 
 if __name__ == "__main__":
     cli()

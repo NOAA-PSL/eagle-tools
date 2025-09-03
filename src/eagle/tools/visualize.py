@@ -1,11 +1,6 @@
 """TODO List for this
 
-3. separate figures and movies as separate mains, and change loading for figures to only load single timestamp
-
-* separate comparisons to ERA5/Replay and GFS/HRRR... this is getting nasty
-* pass the model name as argument to main
-* variable list should be an input argument
-* eventually we'll want to pass the dot size as an argument too, TBD
+4. level variables
 """
 import os
 import sys
@@ -75,7 +70,6 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     cbar_kwargs = kwargs.pop("cbar_kwargs", {})
     extend = kwargs.pop("extend", None)
     t0 = kwargs.pop("t0", "")
-    hds = kwargs.pop("hds", None)
 
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
@@ -119,18 +113,9 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     return None, None
 
 
-def main(config, mode="figure"):
-    """A note about t0
-    In the inference yaml, I think this means "the very first initial condition"... makes sense
-
-    But when I'm visualizing the data, I think about t0 as the last initial condition...
-    as in the last data given to the model before making a forecast.
-    So... the t0 given here is that one... the last IC.
-    """
+def main(config, mode):
 
     setup_simple_log()
-
-    assert mode in ["figure", "movie"]
 
     # options used for verification and inference datasets
     model_type = config.get("model_type")
@@ -157,6 +142,10 @@ def main(config, mode="figure"):
         **subsample_kwargs,
     )
     tds = tds.squeeze("ensemble")
+    if mode == "figure":
+        tds = tds.sel(time=[tf])
+    else:
+        tds = tds.sel(time=slice(t0, tf))
     logger.info(f"Opened Target dataset:\n{tds}\n")
 
     # Prediction dataset
@@ -169,6 +158,10 @@ def main(config, mode="figure"):
         reshape_to_rectilinear=True,
         **subsample_kwargs,
     )
+    if mode == "figure":
+        pds = pds.sel(time=[tf])
+    else:
+        pds = pds.sel(time=slice(t0, tf))
     logger.info(f"Opened Prediction dataset:\n{pds}\n")
 
     # setup plot options with user overrides
@@ -197,9 +190,7 @@ def main(config, mode="figure"):
         # xmovie requires a single dataset, so package up predictions + target for each variable
         ds = xr.Dataset({
             "prediction": pds[varname].load(),
-            "target": tds[varname].sel(
-                time=pds.time.values,
-            ).load(),
+            "target": tds[varname].load(),
         })
         ds["prediction"].attrs["nice_name"] = "Prediction: " + config.get("model_name", "")
         ds["target"].attrs["nice_name"] = "Target: " + config.get("target_name", "")

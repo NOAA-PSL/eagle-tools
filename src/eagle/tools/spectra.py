@@ -65,6 +65,48 @@ def compute_power_spectrum(xds, latlons, min_delta):
 
 
 def main(config):
+    """Compute the Power Spectrum averaged over all initial conditions
+
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    Config Args:
+        min_delta_lat (float, optional): The minimum delta latitude used as a
+            parameter for the power spectrum computation. Defaults to 0.0003.
+
+    Config Args common to metrics.py:
+        model_type (str): The type of model grid, one of: "global", "lam",
+            "nested-lam", "nested-global".
+            This determines how grid cell area weights, edge trimming, and coordinates are handled.
+        verification_dataset_path (str): The path to the zarr verification
+            dataset used as targets for comparison.
+        forecast_path (str): The directory path containing the forecast datasets.
+        output_path (str): The directory where the output NetCDF files will be saved, as
+            f"{output_path}/spectra.{model_type}.nc"
+        start_date (str): The first initial condition date to process, in any format
+            interpretable by pandas.date_range.
+        end_date (str): The last initial condition date to process, in any format
+            interpretable by pandas.date_range.
+        freq (str): The frequency string for generating the date range between
+            start_date and end_date (e.g., "6h"), passed to pandas.date_range.
+        lead_time (str): A string representing the forecast lead time (e.g., "240h")
+            used as part of the forecast input filename.
+        from_anemoi (bool, optional): If True, opens forecast data using the
+            anemoi inference dataset format. Otherwise, assumes layout of dataset
+            created by ufs2arco using a base target layout. Defaults to True.
+        lam_index (int, optional): For nested models (e.g., model_type="nested-lam"), this integer
+            specifies the number of grid points belonging to the LAM domain.
+            Defaults to None.
+        levels (list, optional): A list of vertical levels to subset from the
+            datasets. If None, all levels are used. Defaults to None.
+        vars_of_interest (list[str], optional): A list of variable names to
+            include in the analysis. If None, all variables are used. Defaults to None.
+        trim_edge (int, optional): Specifies the number of grid points to trim
+            from the edges of the verification dataset. Only used for LAM or Nested configurations.
+            Defaults to None.
+        trim_forecast_edge (int, optional): Specifies the number of grid points to
+            trim from the edges of the forecast dataset. Defaults to None.
+    """
 
     setup_simple_log()
 
@@ -125,7 +167,7 @@ def main(config):
     logger.info(f" --- Done Computing Spectra --- ")
 
     logger.info(f" --- Combining & Storing Results --- ")
-    fname = f"{config['output_path']}/spectra.predictions.{config['model_type']}.nc"
+    fname = f"{config['output_path']}/spectra.{config['model_type']}.nc"
     pspectra.to_netcdf(fname)
     logger.info(f"Stored result: {fname}")
     logger.info(f" --- Done Storing Spectra --- \n")

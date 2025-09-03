@@ -93,17 +93,19 @@ def main(config):
     date range, computes the Root Mean Square Error (RMSE) and Mean Absolute
     Error (MAE) between them, and saves the results to NetCDF files.
 
-    Note that the arguments documented here are passed via a config dictionary.
+    Note:
+        The arguments documented here are passed via a config dictionary.
 
-    Args:
+    Config Args:
         model_type (str): The type of model grid, one of: "global", "lam",
             "nested-lam", "nested-global".
             This determines how grid cell area weights, edge trimming, and coordinates are handled.
         verification_dataset_path (str): The path to the zarr verification
             dataset used as targets for comparison.
         forecast_path (str): The directory path containing the forecast datasets.
-        output_path (str): The directory path where the output NetCDF files
-            (rmse.nc and mae.nc) will be saved.
+        output_path (str): The directory where the output NetCDF files will be saved, as
+            f"{output_path}/rmse.{model_type}.nc" and
+            f"{output_path}/mae.{model_type}.nc"
         start_date (str): The first initial condition date to process, in any format
             interpretable by pandas.date_range.
         end_date (str): The last initial condition date to process, in any format

@@ -85,6 +85,34 @@ def run_forecast(
 
 
 def main(config):
+    """Runs Anemoi inference pipeline over many initialization dates.
+
+    Note:
+        There may be ways to do this directly with anemoi-inference, and
+        there might be more efficient ways to parallelize inference by
+        better using anemoi-inference.
+        However, this works, especially for low resolution applications.
+
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    Config Args:
+        start_date (str): The first initial condition date to process.
+        end_date (str): The last initial condition date to process.
+        freq (str): Frequency string for the date range (e.g., "6h").
+        lead_time (int): Forecast lead time in hours (e.g., 240 = 240h = 10days).
+        checkpoint_path (str): Path to the trained model checkpoint for inference.
+        input_dataset_kwargs (dict): A dictionary of arguments passed to
+            anemoi-dataset to open an anemoi dataset for initial conditions.
+        output_path (str): Directory where the output NetCDF files will be saved in the format
+            f"{output_path}/{t0}.{lead_time}h.nc", or
+            if extract_lam=True, then f"{output_path}/{t0}.{lead_time}h.lam.nc"
+        runner (str, optional): The name of the anemoi-inference runner to use.
+            Defaults to "default".
+        extract_lam (bool, optional): If True, extracts and saves only the LAM
+            (Limited Area Model) domain from the output. Only used for Nested model configurations.
+            Defaults to False.
+    """
 
     setup_simple_log()
 

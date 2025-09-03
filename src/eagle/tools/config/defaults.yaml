@@ -39,3 +39,21 @@ fig_kwargs:
   #projection_kwargs:
   #  central_longitude: -120
   #  central_latitude: 20
+units:
+  10m_wind_speed: m/s
+  80m_wind_speed: m/s
+  100m_wind_speed: m/s
+  wind_speed: m/s
+  10m_zonal_wind: m/s
+  80m_zonal_wind: m/s
+  100m_zonal_wind: m/s
+  zonal_wind: m/s
+  10m_meridional_wind: m/s
+  80m_meridional_wind: m/s
+  100m_meridional_wind: m/s
+  meridional_wind: m/s
+  2m_specific_humidity: kg/kg
+  specific_humidity: kg/kg
+  2m_temperature: K
+  temperature: K
+  total_precipitation_6hr: mm

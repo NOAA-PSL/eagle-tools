@@ -1,7 +1,5 @@
 """TODO List for this
 
-1. move reshape to rectilinear as data open option
-2. units
 3. separate figures and movies as separate mains, and change loading for figures to only load single timestamp
 
 * separate comparisons to ERA5/Replay and GFS/HRRR... this is getting nasty
@@ -183,6 +181,8 @@ def main(config, mode="figure"):
     per_variable_kwargs = defaults["per_variable_kwargs"].copy()
     per_variable_kwargs["total_precipitation_6hr"] = get_precip_kwargs()
     per_variable_kwargs.update(config.get("per_variable_kwargs", {}))
+    units = defaults["units"].copy()
+    units.update(config.get("units", {}))
 
     # filter: get kwargs for desired variables only
     per_variable_kwargs = {
@@ -213,8 +213,7 @@ def main(config, mode="figure"):
             logger.info(f"\tconverted {varname} K -> degC")
 
         label = " ".join([x.capitalize() for x in varname.split("_")])
-        units = ds.target.attrs.get("units", "")
-        ds.attrs["label"] = f"{label} ({units})"
+        ds.attrs["label"] = f"{label} ({units.get(varname, '')})"
 
         # colorbar extension options
         options["extend"], vmin, vmax = get_extend(

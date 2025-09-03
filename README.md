@@ -16,6 +16,9 @@ a conda environment for all dependencies.
 Note that this package is not (yet) available on conda, but it can still be
 installed via pip.
 
+Note also that the module load statements are for working on Perlmutter, and
+would need to be changed for different machines.
+
 ```
 conda env create -n eagle
 conda install -c conda-forge ufs2arco

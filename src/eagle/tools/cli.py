@@ -8,22 +8,22 @@ def common_options(func):
     options = [
         click.option(
             "--model-type",
-            help="The type of model grid.",
+            help="The type of model grid, one of 'global', 'lam', 'nested-lam', or 'nested-global'",
         ),
         click.option(
             "--verification-dataset-path",
             type=click.Path(),
-            help="Path to the zarr verification dataset.",
+            help="Path to the anemoi dataset with target data used for comparison.",
         ),
         click.option(
             "--forecast-path",
             type=click.Path(),
-            help="Directory path for forecast datasets.",
+            help="Directory for where to read forecasts from.",
         ),
         click.option(
             "--output-path",
             type=click.Path(),
-            help="Directory path for output NetCDF files.",
+            help="Directory to store output.",
         ),
         click.option(
             "--start-date",
@@ -68,12 +68,12 @@ def common_options(func):
         click.option(
             "--trim-edge",
             type=int,
-            help="Grid points to trim from verification dataset edges.",
+            help="Grid points to trim from verification dataset edges. Only for LAM or Nested model configurations.",
         ),
         click.option(
             "--trim-forecast-edge",
             type=int,
-            help="Grid points to trim from forecast dataset edges.",
+            help="Grid points to trim from forecast dataset edges. Only for LAM or Nested model configurations.",
         ),
     ]
     # Apply decorators in reverse order
@@ -113,6 +113,7 @@ def postprocess(config_file):
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
+@common_options
 def metrics(config_file):
     """
     Compute error metrics.
@@ -125,6 +126,13 @@ def metrics(config_file):
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
+@click.option(
+    "--keep-t0",
+    is_flag=True,
+    default=None,
+    help="Keep t0 dimension in output, otherwise average over initial conditions",
+)
+@common_options
 def spatial(config_file):
     """
     Compute spatial error metrics.
@@ -137,9 +145,15 @@ def spatial(config_file):
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
+@click.option(
+    "--min-delta-lat",
+    default=0.0003,
+    help="Keep t0 dimension in output, otherwise average over initial conditions",
+)
+@common_options
 def spectra(config_file):
     """
-    Compute spectra error metrics.
+    Compute power spectra.
     """
     from eagle.tools.spectra import main as spectra_main
 
@@ -149,6 +163,16 @@ def spectra(config_file):
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
+@click.option(
+    "--model-name",
+    default="",
+    help="Display name for prediction dataset in plot titles",
+)
+@click.option(
+    "--target-name",
+    default="",
+    help="Display name for target dataset in plot titles",
+)
 def figures(config_file):
     """
     Visualize the fields as figures

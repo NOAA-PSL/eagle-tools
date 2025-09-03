@@ -100,8 +100,8 @@ def main(config):
         model_type (str): The type of model grid, one of: "global", "lam",
             "nested-lam", "nested-global".
             This determines how grid cell area weights, edge trimming, and coordinates are handled.
-        verification_dataset_path (str): The path to the zarr verification
-            dataset used as targets for comparison.
+        verification_dataset_path (str): The path to the anemoi dataset with target data
+            used for comparison.
         forecast_path (str): The directory path containing the forecast datasets.
         output_path (str): The directory where the output NetCDF files will be saved, as
             f"{output_path}/rmse.{model_type}.nc" and

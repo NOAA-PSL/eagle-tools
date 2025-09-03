@@ -79,10 +79,6 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     t0 = kwargs.pop("t0", "")
     hds = kwargs.pop("hds", None)
 
-    lon = np.unique(xds["longitude"])
-    lat = np.unique(xds["latitude"])[::-1]
-    shape = (len(lat), len(lon))
-
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
     if projection is not None:
@@ -94,9 +90,9 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     for ii, label in enumerate(["target", "prediction"]):
         ax = fig.add_subplot(1, 2, ii+1, **subplot_kw)
         p = ax.pcolormesh(
-            lon,
-            lat,
-            xds[label].isel(time=time).values.reshape(shape),
+            xds.longitude,
+            xds.latitude,
+            xds[label].isel(time=time).values,
             transform=ccrs.PlateCarree(),
             **kwargs,
         )
@@ -159,8 +155,10 @@ def main(config, mode="figure"):
         path=config["verification_dataset_path"],
         trim_edge=config.get("trim_edge", None),
         rename_to_longnames=True,
+        reshape_to_rectilinear=True,
         **subsample_kwargs,
     )
+    tds = tds.squeeze("ensemble")
     logger.info(f"Opened Target dataset:\n{tds}\n")
 
     # Prediction dataset
@@ -170,6 +168,7 @@ def main(config, mode="figure"):
         model_type=model_type,
         lam_index=lam_index,
         rename_to_longnames=True,
+        reshape_to_rectilinear=True,
         **subsample_kwargs,
     )
     logger.info(f"Opened Prediction dataset:\n{pds}\n")

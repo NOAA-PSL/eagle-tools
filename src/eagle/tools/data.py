@@ -33,21 +33,28 @@ def open_anemoi_dataset(
     vars_of_interest: Sequence[str] = None,
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
+    reshape_to_rectilinear: bool = False,
 ) -> xr.Dataset:
 
-    xds = xr.open_zarr(path)
-    vds = expand_anemoi_dataset(xds, "data", xds.attrs["variables"])
+    ads = xr.open_zarr(path)
+    xds = expand_anemoi_dataset(ads, "data", ads.attrs["variables"])
     for key in ["x", "y"]:
-        if key in xds:
-            vds[key] = xds[key] if "variable" not in xds[key].dims else xds[key].isel(variable=0, drop=True)
-            vds = vds.set_coords(key)
+        if key in ads:
+            xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
+            xds = xds.set_coords(key)
 
-    vds = subsample(vds, levels, vars_of_interest)
+    xds = subsample(xds, levels, vars_of_interest)
     if trim_edge is not None:
-        vds = trim_xarray_edge(vds, trim_edge)
+        xds = trim_xarray_edge(xds, trim_edge)
     if rename_to_longnames:
-        vds = rename(vds)
-    return vds
+        xds = rename(xds)
+
+    if reshape_to_rectilinear:
+        try:
+            xds = reshape_cell_to_latlon(xds)
+        except:
+            logger.warning("open_anemoi_dataset: could not reshape_to_rectilinear, skipping...")
+    return xds
 
 
 def open_anemoi_inference_dataset(
@@ -59,6 +66,7 @@ def open_anemoi_inference_dataset(
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     load: bool = False,
+    reshape_to_rectilinear: bool = False,
 ) -> xr.Dataset:
     assert model_type in ("nested-lam", "nested-global", "global")
 
@@ -86,6 +94,13 @@ def open_anemoi_inference_dataset(
 
     if rename_to_longnames:
         xds = rename(xds)
+
+    if reshape_to_rectilinear:
+        try:
+            xds = reshape_cell_to_latlon(xds)
+        except:
+            logger.warning("open_anemoi_inference_dataset: could not reshape_to_rectilinear, skipping...")
+
     return xds
 
 
@@ -97,6 +112,7 @@ def open_forecast_zarr_dataset(
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     load: bool = False,
+    reshape_to_rectilinear: bool = False,
 ) -> xr.Dataset:
     """This is for non-anemoi forecast datasets, for example HRRR forecast data preprocessed by ufs2arco"""
 
@@ -133,6 +149,11 @@ def open_forecast_zarr_dataset(
     if rename_to_longnames:
         xds = rename(xds)
 
+    if reshape_to_rectilinear:
+        try:
+            xds = reshape_cell_to_latlon(xds)
+        except:
+            logger.warning("open_forecast_zarr_dataset: could not reshape_to_rectilinear, skipping...")
     return xds
 
 
@@ -246,3 +267,34 @@ def rename(xds):
         if key in xds:
             xds = xds.rename({key: val})
     return xds
+
+def reshape_cell_to_latlon(xds):
+
+    lon = np.unique(xds["longitude"])
+    lat = np.unique(xds["latitude"])
+    if xds["latitude"][0] > xds["latitude"][-1]:
+        lat = lat[::-1]
+
+    nds = xr.Dataset()
+    nds["longitude"] = xr.DataArray(
+        lon,
+        coords={"longitude": lon},
+    )
+    nds["latitude"] = xr.DataArray(
+        lat,
+        coords={"latitude": lat},
+    )
+    for key in xds.dims:
+        if key != "cell":
+            nds[key] = xds[key].copy()
+
+    for key in xds.data_vars:
+        dims = tuple(d for d in xds[key].dims if d != "cell")
+        dims += ("latitude", "longitude")
+        shape = tuple(len(nds[d]) for d in dims)
+        nds[key] = xr.DataArray(
+            xds[key].data.reshape(shape),
+            dims=dims,
+            attrs=xds[key].attrs.copy(),
+        )
+    return nds

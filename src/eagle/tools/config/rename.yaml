@@ -1,0 +1,37 @@
+# GFS / HRRR Style
+sp: surface_pressure
+accum_tp: total_precipitation_6hr
+t2m: 2m_temperature
+sh2: 2m_specific_humidity
+u10: 10m_zonal_wind
+v10: 10m_meridional_wind
+u80: 80m_zonal_wind
+v80: 80m_meridional_wind
+u100: 100m_zonal_wind
+v100: 100m_meridional_wind
+t: temperature
+q: specific_humidity
+u: zonal_wind
+v: meridional_wind
+w: vertical_velocity
+# Replay Style
+pressfc: surface_pressure
+prateb_ave: total_precipitation_6hr
+tmp2m: 2m_temperature
+spfh2: 2m_specific_humidity
+ugrd10: 10m_zonal_wind
+vgrd10: 10m_meridional_wind
+ugrd80: 80m_zonal_wind
+vgrd80: 80m_meridional_wind
+ugrd100: 100m_zonal_wind
+vgrd100: 100m_meridional_wind
+tmp: temperature
+spfh: specific_humidity
+ugrd: zonal_wind
+vgrd: meridional_wind
+dzdt: vertical_velocity
+# GCS ERA5 Style
+10m_u_component_of_wind: 10m_zonal_wind
+10m_v_component_of_wind: 10m_meridional_wind
+u_component_of_wind: zonal_wind
+v_component_of_wind: meridional_wind

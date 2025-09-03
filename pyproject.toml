@@ -31,6 +31,7 @@ dependencies = [
     "matplotlib",
     "cartopy",
     "cmocean",
+    "xmovie @ git+https://github.com/timothyas/xmovie.git@feature/gif-scale",
 ]
 
 # TODO:
@@ -48,3 +49,6 @@ write_to = "src/eagle/tools/_version.py"
 
 [project.scripts]
 eagle-tools = "eagle.tools.cli:cli"
+
+[tool.setuptools.package-data]
+"eagle.tools.config" = ["*.yaml"]

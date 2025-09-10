@@ -7,17 +7,23 @@ import xarray as xr
 import pandas as pd
 
 import ufs2arco.utils
+from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
 from eagle.tools.log import setup_simple_log
-from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset
+from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset, reshape_cell_to_latlon
 
 logger = logging.getLogger("eagle.tools")
 
 
-def get_gridcell_area_weights(xds, model_type):
+def get_gridcell_area_weights(xds, model_type, reshape_to_rectilinear=False, regrid_kwargs=None):
 
     if "global" in model_type:
-        return _area_weights(xds)
+        weights = _area_weights(xds, reshape_to_rectilinear=reshape_to_rectilinear)
+        if regrid_kwargs is not None:
+            weights = horizontal_regrid(weights.to_dataset(name="weights"), **regrid_kwargs)["weights"]
+
+        return weights
+
 
     elif model_type in ("lam", "nested-lam"):
         return 1. # Assume LAM is equal area
@@ -26,7 +32,7 @@ def get_gridcell_area_weights(xds, model_type):
         raise NotImplementedError
 
 
-def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12):
+def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12, reshape_to_rectilinear=False):
     """This is a nice code block copied from anemoi-graphs"""
 
 
@@ -43,7 +49,16 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
     if unit_mean:
         area_weight /= area_weight.mean()
 
+    area_weight = xr.DataArray(area_weight, coords=xds.cell.coords)
+    if reshape_to_rectilinear:
+        try:
+            ads = reshape_cell_to_latlon(area_weight.to_dataset(name="weights"))
+            area_weight = ads["weights"]
+        except:
+            logger.warning("Could not reshape area weights to lat/lon")
     return area_weight
+
+
 
 
 def postprocess(xds):
@@ -62,24 +77,24 @@ def postprocess(xds):
     return xds
 
 
-def rmse(target, prediction, weights=1.):
+def rmse(target, prediction, weights=1., spatial_dims=("cell",)):
     result = {}
     for key in prediction.data_vars:
         se = (target[key] - prediction[key])**2
         se = weights*se
-        mse = se.mean(["cell", "ensemble"])
+        mse = se.mean(spatial_dims+("ensemble",))
         result[key] = np.sqrt(mse).compute()
 
     xds = xr.Dataset(result)
     return postprocess(xds)
 
 
-def mae(target, prediction, weights=1.):
+def mae(target, prediction, weights=1., spatial_dims=("cell",)):
     result = {}
     for key in prediction.data_vars:
         ae = np.abs(target[key] - prediction[key])
         ae = weights*ae
-        mae = ae.mean(["cell", "ensemble"])
+        mae = ae.mean(spatial_dims+("ensemble",))
         result[key] = mae.compute()
 
     xds = xr.Dataset(result)
@@ -145,6 +160,10 @@ def main(config):
         \b
         trim_forecast_edge (int, optional): Specifies the number of grid points to
             trim from the edges of the forecast dataset. Defaults to None.
+        \b
+        forecast_regrid_kwargs (dict, optional): options passed to ufs2arco.transforms.horizontal_regrid
+        \b
+        target_regrid_kwargs (dict, optional): options passed to ufs2arco.transforms.horizontal_regrid
     """
 
     setup_simple_log()
@@ -156,6 +175,12 @@ def main(config):
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
     }
+    target_regrid_kwargs = config.get("target_regrid_kwargs", None)
+    forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
+    do_any_regridding = target_regrid_kwargs or forecast_regrid_kwargs
+    mkw = {}
+    if do_any_regridding:
+        mkw["spatial_dims"] = ("latitude", "longitude")
 
     # Verification dataset
     vds = open_anemoi_dataset(
@@ -165,7 +190,12 @@ def main(config):
     )
 
     # Area weights
-    latlon_weights = get_gridcell_area_weights(vds, model_type)
+    latlon_weights = get_gridcell_area_weights(
+        vds,
+        model_type,
+        reshape_to_rectilinear=do_any_regridding,
+        regrid_kwargs=target_regrid_kwargs,
+    )
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
 
@@ -185,6 +215,7 @@ def main(config):
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
+                reshape_to_rectilinear=do_any_regridding,
                 **subsample_kwargs,
             )
         else:
@@ -194,13 +225,24 @@ def main(config):
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
+                reshape_to_rectilinear=do_any_regridding,
                 **subsample_kwargs,
             )
 
-        tds = vds.sel(time=fds.time.values).load()
+        if forecast_regrid_kwargs is not None:
+            fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
-        rmse_container.append(rmse(target=tds, prediction=fds, weights=latlon_weights))
-        mae_container.append(mae(target=tds, prediction=fds, weights=latlon_weights))
+        tds = vds.sel(time=fds.time.values).load()
+        if do_any_regridding:
+            try:
+                tds = reshape_cell_to_latlon(tds)
+            except:
+                logger.warning(f"Could not reshape target data to latlon")
+        if target_regrid_kwargs is not None:
+            tds = horizontal_regrid(tds, **target_regrid_kwargs)
+
+        rmse_container.append(rmse(target=tds, prediction=fds, weights=latlon_weights, **mkw))
+        mae_container.append(mae(target=tds, prediction=fds, weights=latlon_weights, **mkw))
 
         logger.info(f"Done with {st0}")
     logger.info(f" --- Done Computing Metrics --- \n")

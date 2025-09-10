@@ -7,6 +7,7 @@ import xarray as xr
 import pandas as pd
 
 import ufs2arco.utils
+from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset
@@ -131,6 +132,9 @@ def main(config):
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
     }
+    target_regrid_kwargs = config.get("target_regrid_kwargs", None)
+    forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
+    do_any_regridding = target_regrid_kwargs or forecast_regrid_kwargs
 
     # Verification dataset
     vds = open_anemoi_dataset(
@@ -140,7 +144,12 @@ def main(config):
     )
 
     # Area weights
-    latlon_weights = get_gridcell_area_weights(vds, model_type)
+    latlon_weights = get_gridcell_area_weights(
+        vds,
+        model_type,
+        reshape_to_rectilinear=do_any_regridding,
+        regrid_kwargs=target_regrid_kwargs,
+    )
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
 
@@ -161,6 +170,7 @@ def main(config):
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
+                reshape_to_rectilinear=True,
                 **subsample_kwargs,
             )
         else:
@@ -170,10 +180,20 @@ def main(config):
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
+                reshape_to_rectilinear=True,
                 **subsample_kwargs,
             )
 
+        if forecast_regrid_kwargs is not None:
+            fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
+
         tds = vds.sel(time=fds.time.values).load()
+        try:
+            tds = reshape_cell_to_latlon(tds)
+        except:
+            logger.warning(f"Could not reshape target data to latlon")
+        if target_regrid_kwargs is not None:
+            tds = horizontal_regrid(tds, **target_regrid_kwargs)
 
         this_rmse = rmse(target=tds, prediction=fds, weights=latlon_weights, keep_t0=keep_t0)
         this_mae = mae(target=tds, prediction=fds, weights=latlon_weights, keep_t0=keep_t0)

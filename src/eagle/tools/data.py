@@ -125,20 +125,22 @@ def open_forecast_zarr_dataset(
     xds = xds.swap_dims({"fhr": "time"}).drop_vars("fhr")
     xds = subsample(xds, levels, vars_of_interest)
 
-    # Comparing to anemoi, it's easier to flatten than unpack anemoi
-    if {"x", "y"}.issubset(xds.dims):
-        xds = xds.stack(cell2d=("y", "x"))
-    elif {"longitude", "latitude"}.issubset(xds.dims):
-        xds = xds.stack(cell2d=("latitude", "longitude"))
-    else:
-        raise KeyError("Unclear on the dimensions here")
+    # Comparing to anemoi, it's sometimes easier to flatten than unpack anemoi
+    if not reshape_to_rectilinear:
+        if {"x", "y"}.issubset(xds.dims):
+            xds = xds.stack(cell2d=("y", "x"))
+        elif {"longitude", "latitude"}.issubset(xds.dims):
+            xds = xds.stack(cell2d=("latitude", "longitude"))
+        else:
+            raise KeyError("Unclear on the dimensions here")
 
-    xds["cell"] = xr.DataArray(
-        np.arange(len(xds.cell2d)),
-        coords=xds.cell2d.coords,
-    )
-    xds = xds.swap_dims({"cell2d": "cell"})
-    xds = xds.drop_vars(["cell2d", "t0", "valid_time"])
+        xds["cell"] = xr.DataArray(
+            np.arange(len(xds.cell2d)),
+            coords=xds.cell2d.coords,
+        )
+        xds = xds.swap_dims({"cell2d": "cell"})
+        xds = xds.drop_vars("cell2d")
+    xds = xds.drop_vars(["t0", "valid_time"])
 
     if load:
         xds = xds.load()
@@ -148,12 +150,6 @@ def open_forecast_zarr_dataset(
 
     if rename_to_longnames:
         xds = rename(xds)
-
-    if reshape_to_rectilinear:
-        try:
-            xds = reshape_cell_to_latlon(xds)
-        except:
-            logger.warning("open_forecast_zarr_dataset: could not reshape_to_rectilinear, skipping...")
     return xds
 
 

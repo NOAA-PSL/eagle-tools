@@ -1,0 +1,70 @@
+# Configuration file for parsing MET (Model Evaluation Tools) output.
+metadata_keys:
+  - VERSION
+  - MODEL
+  - DESC
+  - FCST_VALID_BEG
+  - FCST_VALID_END
+  - OBS_LEAD
+  - OBS_VALID_BEG
+  - OBS_VALID_END
+  - FCST_VAR
+  - FCST_UNITS
+  - FCST_LEV
+  - OBS_VAR
+  - OBS_UNITS
+  - OBS_LEV
+  - OBTYPE
+  - VX_MASK
+  - INTERP_MTHD
+  - INTERP_PNTS
+  - FCST_THRESH
+  - OBS_THRESH
+  - COV_THRESH
+  - ALPHA
+  - LINE_TYPE
+
+long_names:
+  TOTAL: "Total number of matched pairs"
+  FBAR: "Forecast Mean"
+  FBAR_NCL: "Forecast Mean Normal CI Lower"
+  FBAR_NCU: "Forecast Mean Normal CI Upper"
+  FSTDEV: "Forecast Standard Deviation"
+  FSTDEV_NCL: "Forecast StDev Normal CI Lower"
+  FSTDEV_NCU: "Forecast StDev Normal CI Upper"
+  OBAR: "Observation Mean"
+  OBAR_NCL: "Observation Mean Normal CI Lower"
+  OBAR_NCU: "Observation Mean Normal CI Upper"
+  OSTDEV: "Observation Standard Deviation"
+  OSTDEV_NCL: "Observation StDev Normal CI Lower"
+  OSTDEV_NCU: "Observation StDev Normal CI Upper"
+  PR_CORR: "Pearson Correlation Coefficient"
+  PR_CORR_NCL: "Pearson Correlation Normal CI Lower"
+  PR_CORR_NCU: "Pearson Correlation Normal CI Upper"
+  SP_CORR: "Spearman Rank Correlation"
+  KT_CORR: "Kendall's Tau Rank Correlation"
+  ME: "Mean Error"
+  ME_NCL: "Mean Error Normal CI Lower"
+  ME_NCU: "Mean Error Normal CI Upper"
+  ESTDEV: "Standard Deviation of the Error"
+  ESTDEV_NCL: "Error StDev Normal CI Lower"
+  ESTDEV_NCU: "Error StDev Normal CI Upper"
+  MBIAS: "Multiplicative Bias"
+  MAE: "Mean Absolute Error"
+  MSE: "Mean Squared Error"
+  BCMSE: "Bias-Corrected Mean Squared Error"
+  RMSE: "Root Mean Squared Error"
+  E10: "10th Percentile of Error"
+  E25: "25th Percentile of Error"
+  E50: "50th Percentile of Error (Median)"
+  E75: "75th Percentile of Error"
+  E90: "90th Percentile of Error"
+  EIQR: "Interquartile Range of Error"
+  MAD: "Median Absolute Deviation of Error"
+  ANOM_CORR: "Anomaly Correlation"
+  ME2: "Squared Mean Error"
+  MSESS: "Murphy's Mean Square Error Skill Score"
+  RMSFA: "Root Mean Square of Forecast Anomalies"
+  RMSOA: "Root Mean Square of Observation Anomalies"
+  ANOM_CORR_UNCNTR: "Uncentered Anomaly Correlation"
+  SI: "Scatter Index"

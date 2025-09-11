@@ -321,7 +321,7 @@ def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
         if key != "cell":
             nds[key] = xds[key].copy()
 
-    for key in xds.data_vars:
+    for key in list(xds.data_vars) + [x for x in list(xds.coords) if x not in xds.dims]:
         dims = tuple(d for d in xds[key].dims if d != "cell")
         dims += ("y", "x")
         shape = tuple(len(nds[d]) for d in dims)

@@ -8,6 +8,7 @@ from eagle.tools.metrics import main as metrics_main
 from eagle.tools.spatial import main as spatial_main
 from eagle.tools.spectra import main as spectra_main
 from eagle.tools.visualize import main as visualize_main
+from eagle.tools.postwxvx import main as postwxvx_main
 
 @click.group()
 def cli():
@@ -96,6 +97,18 @@ def movies(config_file):
     visualize_main(config, mode="movie")
 
 movies.help = visualize_main.__doc__
+
+
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
+def postwxvx(config_file):
+    """
+    Gather wxvx stats
+    """
+    config = open_yaml_config(config_file)
+    postwxvx_main(config)
+
+postwxvx.help = postwxvx_main.__doc__
 
 if __name__ == "__main__":
     cli()

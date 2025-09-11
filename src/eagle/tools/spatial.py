@@ -147,7 +147,7 @@ def main(config):
     latlon_weights = get_gridcell_area_weights(
         vds,
         model_type,
-        reshape_to_rectilinear=do_any_regridding,
+        reshape_cell_to_2d=do_any_regridding,
         regrid_kwargs=target_regrid_kwargs,
     )
 
@@ -170,7 +170,7 @@ def main(config):
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
-                reshape_to_rectilinear=True,
+                reshape_cell_to_2d=True,
                 **subsample_kwargs,
             )
         else:
@@ -180,7 +180,7 @@ def main(config):
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
-                reshape_to_rectilinear=True,
+                reshape_cell_to_2d=True,
                 **subsample_kwargs,
             )
 

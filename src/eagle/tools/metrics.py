@@ -15,10 +15,10 @@ from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset,
 logger = logging.getLogger("eagle.tools")
 
 
-def get_gridcell_area_weights(xds, model_type, reshape_to_rectilinear=False, regrid_kwargs=None):
+def get_gridcell_area_weights(xds, model_type, reshape_cell_to_2d=False, regrid_kwargs=None):
 
     if "global" in model_type:
-        weights = _area_weights(xds, reshape_to_rectilinear=reshape_to_rectilinear)
+        weights = _area_weights(xds, reshape_cell_to_2d=reshape_cell_to_2d)
         if regrid_kwargs is not None:
             weights = horizontal_regrid(weights.to_dataset(name="weights"), **regrid_kwargs)["weights"]
 
@@ -32,7 +32,7 @@ def get_gridcell_area_weights(xds, model_type, reshape_to_rectilinear=False, reg
         raise NotImplementedError
 
 
-def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12, reshape_to_rectilinear=False):
+def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12, reshape_cell_to_2d=False):
     """This is a nice code block copied from anemoi-graphs"""
 
 
@@ -50,7 +50,7 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
         area_weight /= area_weight.mean()
 
     area_weight = xr.DataArray(area_weight, coords=xds.cell.coords)
-    if reshape_to_rectilinear:
+    if reshape_cell_to_2d:
         try:
             ads = reshape_cell_to_latlon(area_weight.to_dataset(name="weights"))
             area_weight = ads["weights"]
@@ -193,7 +193,7 @@ def main(config):
     latlon_weights = get_gridcell_area_weights(
         vds,
         model_type,
-        reshape_to_rectilinear=do_any_regridding,
+        reshape_cell_to_2d=do_any_regridding,
         regrid_kwargs=target_regrid_kwargs,
     )
 
@@ -215,7 +215,7 @@ def main(config):
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
-                reshape_to_rectilinear=do_any_regridding,
+                reshape_cell_to_2d=do_any_regridding,
                 **subsample_kwargs,
             )
         else:
@@ -225,7 +225,7 @@ def main(config):
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
-                reshape_to_rectilinear=do_any_regridding,
+                reshape_cell_to_2d=do_any_regridding,
                 **subsample_kwargs,
             )
 

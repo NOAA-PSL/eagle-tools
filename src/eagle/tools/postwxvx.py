@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from eagle.tools.log import setup_simple_log
+
 logger = logging.getLogger("eagle.tools")
 
 def parse_lead_time(lead_str: str) -> pd.Timedelta:
@@ -103,6 +105,7 @@ def met_dict_to_dataset(mdict):
 
 def main(config):
 
+    setup_simple_log()
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
     lead_times = np.arange(config["leadtimes"]["start"], config["leadtimes"]["end"]+1, config["leadtimes"]["step"])
     stat_prefix = config["stat_prefix"]

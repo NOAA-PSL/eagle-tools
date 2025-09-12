@@ -11,28 +11,29 @@ from eagle.tools.log import setup_simple_log
 
 logger = logging.getLogger("eagle.tools")
 
-def parse_lead_time(lead_str: str) -> pd.Timedelta:
+def parse_lead_time(lead_str: str) -> int | float:
     """
     Parses MET lead time strings (e.g., "6", "12", "0600", "060000")
-    into a pandas Timedelta object.
+    into an int with forecast hours.
     """
     s_len = len(lead_str)
     if s_len <= 3:  # Handles H, HH, HHH (e.g., "6", "12", "120")
-        hours = int(lead_str)
-        return pd.to_timedelta(hours, unit='h')
+        return int(lead_str)
     elif s_len == 4:  # Handles HHMM (e.g., "0600")
         hours = int(lead_str[0:2])
         minutes = int(lead_str[2:4])
-        return pd.to_timedelta(hours, unit='h') + pd.to_timedelta(minutes, unit='m')
+        if minutes > 0:
+            return hours + minutes / 60
+        else:
+            return hours
     else:  # Assumes HHMMSS (e.g., "060000", "120000")
         hours = int(lead_str[0:-4])
         minutes = int(lead_str[-4:-2])
         seconds = int(lead_str[-2:])
-        return (
-            pd.to_timedelta(hours, unit='h') +
-            pd.to_timedelta(minutes, unit='m') +
-            pd.to_timedelta(seconds, unit='s')
-        )
+        if minutes + seconds > 0:
+            return hours + minutes / 60 + seconds / 3600
+        else:
+            return hours
 
 
 def met_txtfile_to_dict(filename):
@@ -75,7 +76,7 @@ def met_dict_to_dataset(mdict):
 
     # The coordinate for our dataset will be the forecast lead time
     # Convert HHMMSS to a pandas Timedelta for better usability
-    lead_time = int(parse_lead_time(mdict["FCST_LEAD"]).hour)
+    lead_time = parse_lead_time(mdict["FCST_LEAD"])
 
     # Loop through the parsed data to separate attributes from variables
     for key, value in mdict.items():
@@ -127,12 +128,18 @@ def main(config):
 
                 slead = f"{fhr:02d}0000"
                 vtime = t0 + pd.Timedelta(hours=fhr)
+                st01 = f"{t0.year:04d}{t0.month:02d}{t0.day:02d}"
+                st02 = f"{t0.hour:02d}{t0.minute:02d}{t0.second:02d}"
                 svt1 = f"{vtime.year:04d}{vtime.month:02d}{vtime.day:02d}"
                 svt2 = f"{vtime.hour:02d}{vtime.minute:02d}{vtime.second:02d}"
 
-                filename = f"{work_path}/run/stats/{svt1}/{svt2[:2]}/{fhr:03d}/{stat_prefix}_{varname}_{slead}L_{svt1}_{svt2}V_cnt.txt"
-                mdict = met_txtfile_to_dict(filename)
-                xds = met_dict_to_dataset(mdict)
+                filename = f"{work_path}/run/stats/{st01}/{st02[:2]}/{fhr:03d}/{stat_prefix}_{varname}_{slead}L_{svt1}_{svt2}V_cnt.txt"
+                try:
+                    mdict = met_txtfile_to_dict(filename)
+                    xds = met_dict_to_dataset(mdict)
+                except:
+                    logger.warning(f"Failure for {varname} at (t0, fhr) = ({st0}, {fhr})")
+                    xds = xr.Dataset({"fhr": xr.DataArray([fhr], coords={"fhr": [fhr]})})
                 dslist.append(xds)
 
             fds = xr.concat(dslist, dim="fhr")

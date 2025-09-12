@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 import xarray as xr
 from eagle.tools.log import setup_simple_log
-from eagle.tools.data import open_anemoi_inference_dataset
+from eagle.tools.data import open_anemoi_inference_dataset, open_forecast_zarr_dataset
 
 logger = logging.getLogger("eagle.tools")
 

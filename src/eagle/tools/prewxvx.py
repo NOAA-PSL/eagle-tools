@@ -25,6 +25,7 @@ def main(config):
         "reshape_cell_to_2d": True,
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "member": config.get("member", None),
     }
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
@@ -55,6 +56,7 @@ def main(config):
             if key in lds.coords:
                 lds = lds.drop_vars(key)
 
+        lds.attrs = {}
         lds = lds.rename({"x": "longitude", "y": "latitude"})
         lds.attrs["forecast_reference_time"] = str(lds.time.values[0])
         lds.to_netcdf(path_out)

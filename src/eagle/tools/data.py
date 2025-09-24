@@ -34,6 +34,7 @@ def open_anemoi_dataset(
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     reshape_cell_to_2d: bool = False,
+    member: int | None = None,
 ) -> xr.Dataset:
 
     ads = xr.open_zarr(path)
@@ -43,7 +44,9 @@ def open_anemoi_dataset(
             xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
             xds = xds.set_coords(key)
 
-    xds = subsample(xds, levels, vars_of_interest)
+    xds = xds.rename({"ensemble": "member"})
+    xds = subsample(xds, levels, vars_of_interest, member=member)
+    xds = xds.rename({"member": "ensemble"})
     if trim_edge is not None:
         xds = trim_xarray_edge(xds, trim_edge)
     if rename_to_longnames:
@@ -68,12 +71,13 @@ def open_anemoi_inference_dataset(
     load: bool = False,
     reshape_cell_to_2d: bool = False,
     lcc_info: dict | None = None,
+    member: int | None = None,
 ) -> xr.Dataset:
     assert model_type in ("nested-lam", "nested-global", "global")
 
     ids = xr.open_dataset(path, chunks="auto")
     xds = convert_anemoi_inference_dataset(ids)
-    xds = subsample(xds, levels, vars_of_interest)
+    xds = subsample(xds, levels, vars_of_interest, member=member)
 
     if "nested" in model_type:
         assert lam_index is not None
@@ -120,6 +124,7 @@ def open_forecast_zarr_dataset(
     rename_to_longnames: bool = False,
     load: bool = False,
     reshape_cell_to_2d: bool = False,
+    member: int | None = None,
 ) -> xr.Dataset:
     """This is for non-anemoi forecast datasets, for example HRRR forecast data preprocessed by ufs2arco"""
 
@@ -130,7 +135,7 @@ def open_forecast_zarr_dataset(
         coords=xds.fhr.coords,
     )
     xds = xds.swap_dims({"fhr": "time"}).drop_vars("fhr")
-    xds = subsample(xds, levels, vars_of_interest)
+    xds = subsample(xds, levels, vars_of_interest, member=member)
 
     # Comparing to anemoi, it's sometimes easier to flatten than unpack anemoi
     if not reshape_cell_to_2d:
@@ -160,12 +165,15 @@ def open_forecast_zarr_dataset(
     return xds
 
 
-def subsample(xds, levels=None, vars_of_interest=None):
-    """Subsample vertical levels and variables
+def subsample(xds, levels=None, vars_of_interest=None, member=None):
+    """Subsample vertical levels, ensemble member(s), and variables
     """
 
     if levels is not None:
         xds = xds.sel(level=levels)
+
+    if member is not None:
+        xds = xds.sel(member=member)
 
     if vars_of_interest is not None:
         if any("wind_speed" in varname for varname in vars_of_interest):

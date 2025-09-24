@@ -112,6 +112,9 @@ def main(config):
     stat_prefix = config["stat_prefix"]
     variable_prefixes = config["variable_prefixes"]
     work_path = config["work_path"]
+    metmetapath = importlib.resources.files("eagle.tools.config") / "met.yaml"
+    with metmetapath.open("r") as f:
+        rename = yaml.safe_load(f)["rename"]
 
     logger.info(f" --- Gathering metrics from wxvx stats --- ")
     logger.info(f"Initial Conditions:\n{dates}")
@@ -146,4 +149,5 @@ def main(config):
             fds = fds.expand_dims({"t0": [t0]})
             dslist2.append(fds)
         result = xr.concat(dslist2, dim="t0")
-        result.to_netcdf(f"{work_path}/{varname}.nc")
+        nicename = rename.get(varname, varname)
+        result.to_netcdf(f"{work_path}/{nicename}.nc")

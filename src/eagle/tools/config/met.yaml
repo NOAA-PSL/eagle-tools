@@ -24,6 +24,16 @@ metadata_keys:
   - ALPHA
   - LINE_TYPE
 
+rename:
+  2t_heightAboveGround_0002: t2m
+  u_10m_heightAboveGround_0010: u10
+  v_10m_heightAboveGround_0010: v10
+  gh_isobaricInhPa_0500: gh500
+  t_isobaricInhPa_0850: t850
+  u_isobaricInhPa_0250: u250
+  v_isobaricInhPa_0250: v250
+  sp_surface: sp
+
 long_names:
   TOTAL: "Total number of matched pairs"
   FBAR: "Forecast Mean"

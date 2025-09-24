@@ -33,7 +33,8 @@ def open_anemoi_dataset(
     vars_of_interest: Sequence[str] = None,
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
-    reshape_to_rectilinear: bool = False,
+    reshape_cell_to_2d: bool = False,
+    member: int | None = None,
 ) -> xr.Dataset:
 
     ads = xr.open_zarr(path)
@@ -43,17 +44,18 @@ def open_anemoi_dataset(
             xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
             xds = xds.set_coords(key)
 
-    xds = subsample(xds, levels, vars_of_interest)
+    xds = xds.rename({"ensemble": "member"})
+    xds = subsample(xds, levels, vars_of_interest, member=member)
     if trim_edge is not None:
         xds = trim_xarray_edge(xds, trim_edge)
     if rename_to_longnames:
         xds = rename(xds)
 
-    if reshape_to_rectilinear:
+    if reshape_cell_to_2d:
         try:
             xds = reshape_cell_to_latlon(xds)
         except:
-            logger.warning("open_anemoi_dataset: could not reshape_to_rectilinear, skipping...")
+            logger.warning("open_anemoi_dataset: could not reshape_cell_to_2d, skipping...")
     return xds
 
 
@@ -66,13 +68,17 @@ def open_anemoi_inference_dataset(
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     load: bool = False,
-    reshape_to_rectilinear: bool = False,
+    reshape_cell_to_2d: bool = False,
+    lcc_info: dict | None = None,
+    member: int | None = None,
 ) -> xr.Dataset:
     assert model_type in ("nested-lam", "nested-global", "global")
 
     ids = xr.open_dataset(path, chunks="auto")
     xds = convert_anemoi_inference_dataset(ids)
-    xds = subsample(xds, levels, vars_of_interest)
+    xds = subsample(xds, levels, vars_of_interest, member=member)
+    if "ensemble" in xds.dims:
+        raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset renames ensemble-> member, need to do this here")
 
     if "nested" in model_type:
         assert lam_index is not None
@@ -95,11 +101,17 @@ def open_anemoi_inference_dataset(
     if rename_to_longnames:
         xds = rename(xds)
 
-    if reshape_to_rectilinear:
+    if reshape_cell_to_2d and "global" in model_type:
         try:
             xds = reshape_cell_to_latlon(xds)
         except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape_to_rectilinear, skipping...")
+            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (latitude, longitude), skipping...")
+
+    elif reshape_cell_to_2d and "lam" in model_type:
+        try:
+            xds = reshape_cell_to_xy(xds, **lcc_info)
+        except:
+            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (y, x), skipping...")
 
     return xds
 
@@ -112,7 +124,8 @@ def open_forecast_zarr_dataset(
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     load: bool = False,
-    reshape_to_rectilinear: bool = False,
+    reshape_cell_to_2d: bool = False,
+    member: int | None = None,
 ) -> xr.Dataset:
     """This is for non-anemoi forecast datasets, for example HRRR forecast data preprocessed by ufs2arco"""
 
@@ -123,10 +136,10 @@ def open_forecast_zarr_dataset(
         coords=xds.fhr.coords,
     )
     xds = xds.swap_dims({"fhr": "time"}).drop_vars("fhr")
-    xds = subsample(xds, levels, vars_of_interest)
+    xds = subsample(xds, levels, vars_of_interest, member=member)
 
     # Comparing to anemoi, it's sometimes easier to flatten than unpack anemoi
-    if not reshape_to_rectilinear:
+    if not reshape_cell_to_2d:
         if {"x", "y"}.issubset(xds.dims):
             xds = xds.stack(cell2d=("y", "x"))
         elif {"longitude", "latitude"}.issubset(xds.dims):
@@ -153,12 +166,15 @@ def open_forecast_zarr_dataset(
     return xds
 
 
-def subsample(xds, levels=None, vars_of_interest=None):
-    """Subsample vertical levels and variables
+def subsample(xds, levels=None, vars_of_interest=None, member=None):
+    """Subsample vertical levels, ensemble member(s), and variables
     """
 
     if levels is not None:
         xds = xds.sel(level=levels)
+
+    if member is not None:
+        xds = xds.sel(member=member)
 
     if vars_of_interest is not None:
         if any("wind_speed" in varname for varname in vars_of_interest):
@@ -287,6 +303,36 @@ def reshape_cell_to_latlon(xds):
     for key in xds.data_vars:
         dims = tuple(d for d in xds[key].dims if d != "cell")
         dims += ("latitude", "longitude")
+        shape = tuple(len(nds[d]) for d in dims)
+        nds[key] = xr.DataArray(
+            xds[key].data.reshape(shape),
+            dims=dims,
+            attrs=xds[key].attrs.copy(),
+        )
+    return nds
+
+def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
+    """Note: these indices will not match the original dataset, but they will be dropped anyway"""
+
+    x = np.arange(n_x)
+    y = np.arange(n_y)
+
+    nds = xr.Dataset()
+    nds["x"] = xr.DataArray(
+        x,
+        coords={"x": x},
+    )
+    nds["y"] = xr.DataArray(
+        y,
+        coords={"y": y},
+    )
+    for key in xds.dims:
+        if key != "cell":
+            nds[key] = xds[key].copy()
+
+    for key in list(xds.data_vars) + [x for x in list(xds.coords) if x not in xds.dims]:
+        dims = tuple(d for d in xds[key].dims if d != "cell")
+        dims += ("y", "x")
         shape = tuple(len(nds[d]) for d in dims)
         nds[key] = xr.DataArray(
             xds[key].data.reshape(shape),

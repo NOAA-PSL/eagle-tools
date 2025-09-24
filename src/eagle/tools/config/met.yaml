@@ -1,0 +1,137 @@
+# Configuration file for parsing MET (Model Evaluation Tools) output.
+metadata_keys:
+  - VERSION
+  - MODEL
+  - DESC
+  - FCST_VALID_BEG
+  - FCST_VALID_END
+  - OBS_LEAD
+  - OBS_VALID_BEG
+  - OBS_VALID_END
+  - FCST_VAR
+  - FCST_UNITS
+  - FCST_LEV
+  - OBS_VAR
+  - OBS_UNITS
+  - OBS_LEV
+  - OBTYPE
+  - VX_MASK
+  - INTERP_MTHD
+  - INTERP_PNTS
+  - FCST_THRESH
+  - OBS_THRESH
+  - COV_THRESH
+  - ALPHA
+  - LINE_TYPE
+
+rename:
+  2t_heightAboveGround_0002: 2m_temperature
+  u_10m_heightAboveGround_0010: 10m_zonal_wind
+  v_10m_heightAboveGround_0010: 10m_meridional_wind
+  gh_isobaricInhPa_0500: 500hpa_geopotential_height
+  t_isobaricInhPa_0850: 850hpa_temperature
+  u_isobaricInhPa_0250: 250hpa_zonal_wind
+  v_isobaricInhPa_0250: 250hpa_zonal_wind
+  sp_surface: surface_pressure
+
+long_names:
+  TOTAL: "Total number of matched pairs"
+  FBAR: "Forecast Mean"
+  FBAR_NCL: "Forecast Mean Normal CI Lower"
+  FBAR_NCU: "Forecast Mean Normal CI Upper"
+  FBAR_BCL: "Forecast Mean Bootstrap CI Lower"
+  FBAR_BCU: "Forecast Mean Bootstrap CI Upper"
+  FSTDEV: "Forecast Standard Deviation"
+  FSTDEV_NCL: "Forecast StDev Normal CI Lower"
+  FSTDEV_NCU: "Forecast StDev Normal CI Upper"
+  FSTDEV_BCL: "Forecast StDev Bootstrap CI Lower"
+  FSTDEV_BCU: "Forecast StDev Bootstrap CI Upper"
+  OBAR: "Observation Mean"
+  OBAR_NCL: "Observation Mean Normal CI Lower"
+  OBAR_NCU: "Observation Mean Normal CI Upper"
+  OBAR_BCL: "Observation Mean Bootstrap CI Lower"
+  OBAR_BCU: "Observation Mean Bootstrap CI Upper"
+  OSTDEV: "Observation Standard Deviation"
+  OSTDEV_NCL: "Observation StDev Normal CI Lower"
+  OSTDEV_NCU: "Observation StDev Normal CI Upper"
+  OSTDEV_BCL: "Observation StDev Bootstrap CI Lower"
+  OSTDEV_BCU: "Observation StDev Bootstrap CI Upper"
+  PR_CORR: "Pearson Correlation Coefficient"
+  PR_CORR_NCL: "Pearson Correlation Normal CI Lower"
+  PR_CORR_NCU: "Pearson Correlation Normal CI Upper"
+  PR_CORR_BCL: "Pearson Correlation Bootstrap CI Lower"
+  PR_CORR_BCU: "Pearson Correlation Bootstrap CI Upper"
+  SP_CORR: "Spearman Rank Correlation"
+  KT_CORR: "Kendall's Tau Rank Correlation"
+  RANKS: "Number of Ranks"
+  FRANK_TIES: "Forecast Rank Ties"
+  ORANK_TIES: "Observation Rank Ties"
+  ME: "Mean Error"
+  ME_NCL: "Mean Error Normal CI Lower"
+  ME_NCU: "Mean Error Normal CI Upper"
+  ME_BCL: "Mean Error Bootstrap CI Lower"
+  ME_BCU: "Mean Error Bootstrap CI Upper"
+  ESTDEV: "Standard Deviation of the Error"
+  ESTDEV_NCL: "Error StDev Normal CI Lower"
+  ESTDEV_NCU: "Error StDev Normal CI Upper"
+  ESTDEV_BCL: "Error StDev Bootstrap CI Lower"
+  ESTDEV_BCU: "Error StDev Bootstrap CI Upper"
+  MBIAS: "Multiplicative Bias"
+  MBIAS_BCL: "Multiplicative Bias Bootstrap CI Lower"
+  MBIAS_BCU: "Multiplicative Bias Bootstrap CI Upper"
+  MAE: "Mean Absolute Error"
+  MAE_BCL: "Mean Absolute Error Bootstrap CI Lower"
+  MAE_BCU: "Mean Absolute Error Bootstrap CI Upper"
+  MSE: "Mean Squared Error"
+  MSE_BCL: "Mean Squared Error Bootstrap CI Lower"
+  MSE_BCU: "Mean Squared Error Bootstrap CI Upper"
+  BCMSE: "Bias-Corrected Mean Squared Error"
+  BCMSE_BCL: "Bias-Corrected MSE Bootstrap CI Lower"
+  BCMSE_BCU: "Bias-Corrected MSE Bootstrap CI Upper"
+  RMSE: "Root Mean Squared Error"
+  RMSE_BCL: "Root Mean Squared Error Bootstrap CI Lower"
+  RMSE_BCU: "Root Mean Squared Error Bootstrap CI Upper"
+  E10: "10th Percentile of Error"
+  E10_BCL: "10th Percentile of Error Bootstrap CI Lower"
+  E10_BCU: "10th Percentile of Error Bootstrap CI Upper"
+  E25: "25th Percentile of Error"
+  E25_BCL: "25th Percentile of Error Bootstrap CI Lower"
+  E25_BCU: "25th Percentile of Error Bootstrap CI Upper"
+  E50: "50th Percentile of Error (Median)"
+  E50_BCL: "50th Percentile of Error Bootstrap CI Lower"
+  E50_BCU: "50th Percentile of Error Bootstrap CI Upper"
+  E75: "75th Percentile of Error"
+  E75_BCL: "75th Percentile of Error Bootstrap CI Lower"
+  E75_BCU: "75th Percentile of Error Bootstrap CI Upper"
+  E90: "90th Percentile of Error"
+  E90_BCL: "90th Percentile of Error Bootstrap CI Lower"
+  E90_BCU: "90th Percentile of Error Bootstrap CI Upper"
+  EIQR: "Interquartile Range of Error"
+  EIQR_BCL: "Interquartile Range of Error Bootstrap CI Lower"
+  EIQR_BCU: "Interquartile Range of Error Bootstrap CI Upper"
+  MAD: "Median Absolute Deviation of Error"
+  MAD_BCL: "Median Absolute Deviation of Error Bootstrap CI Lower"
+  MAD_BCU: "Median Absolute Deviation of Error Bootstrap CI Upper"
+  ANOM_CORR: "Anomaly Correlation"
+  ANOM_CORR_NCL: "Anomaly Correlation Normal CI Lower"
+  ANOM_CORR_NCU: "Anomaly Correlation Normal CI Upper"
+  ANOM_CORR_BCL: "Anomaly Correlation Bootstrap CI Lower"
+  ANOM_CORR_BCU: "Anomaly Correlation Bootstrap CI Upper"
+  ME2: "Squared Mean Error"
+  ME2_BCL: "Squared Mean Error Bootstrap CI Lower"
+  ME2_BCU: "Squared Mean Error Bootstrap CI Upper"
+  MSESS: "Murphy's Mean Square Error Skill Score"
+  MSESS_BCL: "MSESS Bootstrap CI Lower"
+  MSESS_BCU: "MSESS Bootstrap CI Upper"
+  RMSFA: "Root Mean Square of Forecast Anomalies"
+  RMSFA_BCL: "RMSFA Bootstrap CI Lower"
+  RMSFA_BCU: "RMSFA Bootstrap CI Upper"
+  RMSOA: "Root Mean Square of Observation Anomalies"
+  RMSOA_BCL: "RMSOA Bootstrap CI Lower"
+  RMSOA_BCU: "RMSOA Bootstrap CI Upper"
+  ANOM_CORR_UNCNTR: "Uncentered Anomaly Correlation"
+  ANOM_CORR_UNCNTR_BCL: "Uncentered Anomaly Correlation Bootstrap CI Lower"
+  ANOM_CORR_UNCNTR_BCU: "Uncentered Anomaly Correlation Bootstrap CI Upper"
+  SI: "Scatter Index"
+  SI_BCL: "Scatter Index Bootstrap CI Lower"
+  SI_BCU: "Scatter Index Bootstrap CI Upper"

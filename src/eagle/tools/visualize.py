@@ -257,7 +257,7 @@ def main(config, mode):
         path=config["verification_dataset_path"],
         trim_edge=config.get("trim_edge", None),
         rename_to_longnames=True,
-        reshape_to_rectilinear=True,
+        reshape_cell_to_2d=True,
         **subsample_kwargs,
     )
     tds = tds.squeeze("ensemble")
@@ -273,7 +273,7 @@ def main(config, mode):
         model_type=model_type,
         lam_index=lam_index,
         rename_to_longnames=True,
-        reshape_to_rectilinear=True,
+        reshape_cell_to_2d=True,
         **subsample_kwargs,
     )
     if mode == "figure":

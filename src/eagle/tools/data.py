@@ -46,7 +46,6 @@ def open_anemoi_dataset(
 
     xds = xds.rename({"ensemble": "member"})
     xds = subsample(xds, levels, vars_of_interest, member=member)
-    xds = xds.rename({"member": "ensemble"})
     if trim_edge is not None:
         xds = trim_xarray_edge(xds, trim_edge)
     if rename_to_longnames:
@@ -78,6 +77,8 @@ def open_anemoi_inference_dataset(
     ids = xr.open_dataset(path, chunks="auto")
     xds = convert_anemoi_inference_dataset(ids)
     xds = subsample(xds, levels, vars_of_interest, member=member)
+    if "ensemble" in xds.dims:
+        raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset renames ensemble-> member, need to do this here")
 
     if "nested" in model_type:
         assert lam_index is not None

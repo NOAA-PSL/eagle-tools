@@ -77,10 +77,11 @@ def postprocess(xds):
 
 def rmse(target, prediction, weights=1., spatial_dims=("cell",)):
     result = {}
+    dims = tuple(d for d in target.dims if d not in ("time", "level"))
     for key in prediction.data_vars:
         se = (target[key] - prediction[key])**2
         se = weights*se
-        mse = se.mean(spatial_dims+("ensemble",))
+        mse = se.mean(dims)
         result[key] = np.sqrt(mse).compute()
 
     xds = xr.Dataset(result)
@@ -89,10 +90,11 @@ def rmse(target, prediction, weights=1., spatial_dims=("cell",)):
 
 def mae(target, prediction, weights=1., spatial_dims=("cell",)):
     result = {}
+    dims = tuple(d for d in target.dims if d not in ("time", "level"))
     for key in prediction.data_vars:
         ae = np.abs(target[key] - prediction[key])
         ae = weights*ae
-        mae = ae.mean(spatial_dims+("ensemble",))
+        mae = ae.mean(dims)
         result[key] = mae.compute()
 
     xds = xr.Dataset(result)

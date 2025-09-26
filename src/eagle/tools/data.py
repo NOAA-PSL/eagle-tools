@@ -80,7 +80,7 @@ def open_anemoi_inference_dataset(
     if "ensemble" in xds.dims:
         raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset renames ensemble-> member, need to do this here")
 
-    if "nested" in model_type:
+    if model_type == "nested-lam":
         assert lam_index is not None
         if "lam" in model_type:
             xds = xds.isel(cell=slice(lam_index))
@@ -330,7 +330,8 @@ def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
         if key != "cell":
             nds[key] = xds[key].copy()
 
-    for key in list(xds.data_vars) + [x for x in list(xds.coords) if x not in xds.dims]:
+    coords = [x for x in list(xds.coords) if x not in xds.dims]
+    for key in list(xds.data_vars) + coords:
         dims = tuple(d for d in xds[key].dims if d != "cell")
         dims += ("y", "x")
         shape = tuple(len(nds[d]) for d in dims)
@@ -339,4 +340,6 @@ def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
             dims=dims,
             attrs=xds[key].attrs.copy(),
         )
+
+    nds = nds.set_coords(coords)
     return nds

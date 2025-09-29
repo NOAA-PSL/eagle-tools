@@ -1,4 +1,3 @@
-from mpi4py import MPI
 import logging
 
 import numpy as np
@@ -58,8 +57,6 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
         except:
             logger.warning("Could not reshape area weights to lat/lon")
     return area_weight
-
-
 
 
 def postprocess(xds):
@@ -165,18 +162,18 @@ def main(config):
         forecast_regrid_kwargs (dict, optional): options passed to ufs2arco.transforms.horizontal_regrid
         \b
         target_regrid_kwargs (dict, optional): options passed to ufs2arco.transforms.horizontal_regrid
+        \b
+        use_mpi (bool, optional): if True, use a separate MPI process per initial condition
+        \b
+        log_path (str, optional): if using MPI, provide a path to where the logs get saved (one per MPI process)
     """
 
     use_mpi = config.get("use_mpi", False)
-    #setup_simple_log()
     if use_mpi:
         topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
-        #logger.handlers = []
-        #logger.setLevel(logging.INFO)
-        #logger.addHandler(topo.file_handler)
+        logger.setLevel(logging.INFO)
+        logger.addHandler(topo.file_handler)
 
-        ## a little hack here: use the ufs2arco logger, which sets up logfiles, 1 per MPI rank
-        logger = logging.getLogger("ufs2arco")
     else:
         topo = SerialTopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
 

@@ -87,42 +87,7 @@ def run_forecast(
 def main(config):
     """Runs Anemoi inference pipeline over many initialization dates.
 
-    \b
-    Note:
-        There may be ways to do this directly with anemoi-inference, and
-        there might be more efficient ways to parallelize inference by
-        better using anemoi-inference.
-        However, this works, especially for low resolution applications.
-
-    \b
-    Note:
-        The arguments documented here are passed via a config dictionary.
-
-    \b
-    Config Args:
-        start_date (str): The first initial condition date to process.
-        \b
-        end_date (str): The last initial condition date to process.
-        \b
-        freq (str): Frequency string for the date range (e.g., "6h").
-        \b
-        lead_time (int): Forecast lead time in hours (e.g., 240 = 240h = 10days).
-        \b
-        checkpoint_path (str): Path to the trained model checkpoint for inference.
-        \b
-        input_dataset_kwargs (dict): A dictionary of arguments passed to
-            anemoi-dataset to open an anemoi dataset for initial conditions.
-        \b
-        output_path (str): Directory where the output NetCDF files will be saved in the format
-            f"{output_path}/{t0}.{lead_time}h.nc", or
-            if extract_lam=True, then f"{output_path}/{t0}.{lead_time}h.lam.nc"
-        \b
-        runner (str, optional): The name of the anemoi-inference runner to use.
-            Defaults to "default".
-        \b
-        extract_lam (bool, optional): If True, extracts and saves only the LAM
-            (Limited Area Model) domain from the output. Only used for Nested model configurations.
-            Defaults to False.
+    See ``eagle-tools inference --help`` or cli.py for help
     """
 
     setup_simple_log()

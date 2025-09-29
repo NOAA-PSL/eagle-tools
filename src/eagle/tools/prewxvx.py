@@ -21,19 +21,12 @@ def _rename(xds: xr.Dataset) -> xr.Dataset:
             xds = xds.rename({key: val})
     return xds
 
-def _unrename(xds: xr.Dataset) -> xr.Dataset:
-    rename = {"lat": "latitude", "lon": "longitude"}
-    for key, val in rename.items():
-        if key in xds:
-            xds = xds.rename({key: val})
-    return xds
 
 def prepare_regrid_target_mask(
     anemoi_reference_dataset_kwargs: dict,
     horizontal_regrid_kwargs: dict,
 ) -> str:
     """check if the target mask is there, otherwise add it and store it in a new spot"""
-
 
     target_grid_path = os.path.expandvars(horizontal_regrid_kwargs["target_grid_path"])
     regridder_kwargs = horizontal_regrid_kwargs["regridder_kwargs"]
@@ -46,8 +39,7 @@ def prepare_regrid_target_mask(
 
         # Open anemoi dataset, get the mask and reshape it
         ads = anemoi.datasets.open_dataset(**anemoi_reference_dataset_kwargs)
-        mask = ads.global_mask
-        mask2d = mask.reshape( (len(tds["lat"]), len(tds["lon"])) )
+        mask2d = ads.global_mask.reshape( (len(tds["lat"]), len(tds["lon"])) )
         tds["mask"] = xr.DataArray(
             np.where(mask2d, 0, 1),
             dims=("lat", "lon"),
@@ -86,6 +78,7 @@ def regrid_nested_to_latlon(
     lam_on_global = lam_on_global.dropna("cell")
 
     # create a "cell" index for the two components
+    # note that these are dimensions without variable values at this point
     cutout_cell = np.arange(len(cds.cell))
     lam_cell = len(cutout_cell) + np.arange(len(lam_on_global.cell))
     cds["cell"] = xr.DataArray(cutout_cell, coords={"cell": cutout_cell})
@@ -107,9 +100,7 @@ def main(config):
     output_path = config["output_path"]
     model_type = config["model_type"]
     from_anemoi = config.get("from_anemoi", True)
-
     anemoi_reference_dataset_kwargs = config.get("anemoi_reference_dataset_kwargs", None)
-
 
     open_kwargs = {
         "load": True,

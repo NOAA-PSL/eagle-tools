@@ -194,7 +194,7 @@ def main(config, mode):
         reshape_cell_to_2d=True,
         **subsample_kwargs,
     )
-    tds = tds.squeeze("ensemble")
+    tds = tds.squeeze("member")
     if mode == "figure":
         tds = tds.sel(time=[tf])
     else:

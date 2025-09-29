@@ -1,5 +1,5 @@
+from mpi4py import MPI
 import logging
-from math import ceil
 
 import numpy as np
 from scipy.spatial import SphericalVoronoi
@@ -8,6 +8,7 @@ import pandas as pd
 
 import ufs2arco.utils
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
+from ufs2arco.mpi import MPITopology, SerialTopology
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset, reshape_cell_to_latlon
@@ -82,7 +83,7 @@ def rmse(target, prediction, weights=1., spatial_dims=("cell",)):
     for key in prediction.data_vars:
         se = (target[key] - prediction[key])**2
         se = weights*se
-        mse = se.mean(spatial_dims+("ensemble",))
+        mse = se.mean(spatial_dims+("member",))
         result[key] = np.sqrt(mse).compute()
 
     xds = xr.Dataset(result)
@@ -94,7 +95,7 @@ def mae(target, prediction, weights=1., spatial_dims=("cell",)):
     for key in prediction.data_vars:
         ae = np.abs(target[key] - prediction[key])
         ae = weights*ae
-        mae = ae.mean(spatial_dims+("ensemble",))
+        mae = ae.mean(spatial_dims+("member",))
         result[key] = mae.compute()
 
     xds = xr.Dataset(result)
@@ -166,7 +167,19 @@ def main(config):
         target_regrid_kwargs (dict, optional): options passed to ufs2arco.transforms.horizontal_regrid
     """
 
-    setup_simple_log()
+    use_mpi = config.get("use_mpi", False)
+    #setup_simple_log()
+    if use_mpi:
+        topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
+        #logger.handlers = []
+        #logger.setLevel(logging.INFO)
+        #logger.addHandler(topo.file_handler)
+
+        ## a little hack here: use the ufs2arco logger, which sets up logfiles, 1 per MPI rank
+        logger = logging.getLogger("ufs2arco")
+    else:
+        topo = SerialTopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
+
 
     # options used for verification and inference datasets
     model_type = config["model_type"]
@@ -198,13 +211,26 @@ def main(config):
     )
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
+    n_dates = len(dates)
+    n_batches = int(np.ceil(n_dates / topo.size))
 
     rmse_container = list()
     mae_container = list()
 
     logger.info(f" --- Computing Error Metrics --- ")
     logger.info(f"Initial Conditions:\n{dates}")
-    for t0 in dates:
+    for batch_idx in range(n_dates):
+
+        date_idx = (batch_idx * topo.size) + topo.rank
+        if date_idx + 1 > n_dates:
+            break # last batch situation
+
+        try:
+            t0 = dates[date_idx]
+        except:
+            logger.error(f"Error getting this date: {date_idx} / {n_dates}")
+            raise
+
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
         if config.get("from_anemoi", True):
@@ -247,12 +273,25 @@ def main(config):
         logger.info(f"Done with {st0}")
     logger.info(f" --- Done Computing Metrics --- \n")
 
-    logger.info(f" --- Combining & Storing Results --- ")
-    rmse_container = xr.concat(rmse_container, dim="t0")
-    mae_container = xr.concat(mae_container, dim="t0")
+    logger.info(f" --- Gathering Results on Root Process --- \n")
+    rmse_container = topo.gather(rmse_container)
+    mae_container = topo.gather(mae_container)
 
-    for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
-        fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
-        xda.to_netcdf(fname)
-        logger.info(f"Stored result: {fname}")
-    logger.info(f" --- Done Storing Error Metrics --- \n")
+    if topo.is_root:
+        rmse_container = [xds for sublist in rmse_container for xds in sublist]
+        mae_container = [xds for sublist in mae_container for xds in sublist]
+
+        # Sort before passing to xarray, potentially faster
+        rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])
+        mae_container = sorted(mae_container, key=lambda xds: xds.coords["t0"])
+
+        logger.info(f" --- Combining & Storing Results --- ")
+        rmse_container = xr.concat(rmse_container, dim="t0")
+        mae_container = xr.concat(mae_container, dim="t0")
+
+        for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
+            fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
+            xda.to_netcdf(fname)
+            logger.info(f"Stored result: {fname}")
+
+        logger.info(f" --- Done Storing Error Metrics --- \n")

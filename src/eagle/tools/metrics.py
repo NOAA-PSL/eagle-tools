@@ -80,7 +80,7 @@ def rmse(target, prediction, weights=1., spatial_dims=("cell",)):
     for key in prediction.data_vars:
         se = (target[key] - prediction[key])**2
         se = weights*se
-        mse = se.mean(spatial_dims+("member",))
+        mse = se.mean(spatial_dims+("ensemble",))
         result[key] = np.sqrt(mse).compute()
 
     xds = xr.Dataset(result)
@@ -92,7 +92,7 @@ def mae(target, prediction, weights=1., spatial_dims=("cell",)):
     for key in prediction.data_vars:
         ae = np.abs(target[key] - prediction[key])
         ae = weights*ae
-        mae = ae.mean(spatial_dims+("member",))
+        mae = ae.mean(spatial_dims+("ensemble",))
         result[key] = mae.compute()
 
     xds = xr.Dataset(result)

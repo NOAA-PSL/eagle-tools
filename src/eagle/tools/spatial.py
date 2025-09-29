@@ -38,7 +38,7 @@ def rmse(target, prediction, weights=1., keep_t0=False):
     for key in prediction.data_vars:
         se = (target[key] - prediction[key])**2
         se = weights*se
-        mse = se.mean("ensemble")
+        mse = se.mean("member")
         result[key] = np.sqrt(mse).compute()
 
     xds = xr.Dataset(result)
@@ -50,7 +50,7 @@ def mae(target, prediction, weights=1., keep_t0=False):
     for key in prediction.data_vars:
         ae = np.abs(target[key] - prediction[key])
         ae = weights*ae
-        mae = ae.mean("ensemble")
+        mae = ae.mean("member")
         result[key] = mae.compute()
 
     xds = xr.Dataset(result)

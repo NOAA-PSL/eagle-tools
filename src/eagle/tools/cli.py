@@ -370,6 +370,10 @@ figures.help = """Create figures or movies visually comparing predictions to tar
         trim_edge (int, optional): Specifies the number of grid points to trim
             from the edges of the verification dataset. Only used for LAM or Nested configurations.
             Defaults to None.
+        \b
+        use_mpi (bool, optional): if True, use a separate MPI process per initial condition
+        \b
+        log_path (str, optional): if using MPI, provide a path to where the logs get saved (one per MPI process)
     """
 
 

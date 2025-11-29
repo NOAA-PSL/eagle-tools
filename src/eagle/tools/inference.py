@@ -43,6 +43,9 @@ def create_anemoi_config(
         "input": {"dataset": main_config["input_dataset_kwargs"]},
         "runner": main_config.get("runner", "default"),
     }
+    if "world_size" in main_config and config["runner"] == "parallel":
+        config["world_size"] = main_config["world_size"]
+
     if main_config.get("extract_lam", False):
         config["output"] = {
             "extract_lam": {

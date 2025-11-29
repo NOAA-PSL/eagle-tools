@@ -11,6 +11,7 @@ from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_inference_dataset, open_forecast_zarr_dataset, reshape_cell_to_xy, reshape_cell_to_latlon
+from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 
@@ -52,6 +53,7 @@ def main(config):
                 model_type=model_type,
                 lam_index=config.get("lam_index", None),
                 lcc_info=config.get("lcc_info", None),
+                horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
                 **open_kwargs,
             )
         else:
@@ -60,14 +62,6 @@ def main(config):
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
                 **open_kwargs,
-            )
-
-        if model_type == "nested-global":
-            xds = regrid_nested_to_latlon(
-                xds,
-                lam_index=config["lam_index"],
-                lcc_info=config["lcc_info"],
-                horizontal_regrid_kwargs=config["horizontal_regrid_kwargs"],
             )
 
         # Clean up before storing

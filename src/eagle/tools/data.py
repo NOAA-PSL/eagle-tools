@@ -11,6 +11,8 @@ import anemoi.datasets
 
 from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_dataset
 
+from eagle.tools.nested import regrid_nested_to_latlon
+
 logger = logging.getLogger("eagle.tools")
 
 def _get_xy(xds: xr.Dataset, n_x: int, n_y: int) -> xr.Dataset:
@@ -242,6 +244,7 @@ def open_anemoi_inference_dataset(
     reshape_cell_to_2d: bool = False,
     lcc_info: dict | None = None,
     member: int | None = None,
+    horizontal_regrid_kwargs: dict | None = None,
 ) -> xr.Dataset:
     """
     Opens an inference dataset from Anemoi.
@@ -249,6 +252,9 @@ def open_anemoi_inference_dataset(
     Note that the result from anemoi inference has often been trimmed already,
     as far as the LAM is concerned. If ``trim_edge`` is provided, this will trim
     the result further.
+
+    Note:
+        When ``model_type = "nested-global"``, the dataset is regridded to a common global resolution.
 
     Args:
         path (str): Path to the dataset.
@@ -282,10 +288,17 @@ def open_anemoi_inference_dataset(
     if "ensemble" in xds.dims:
         raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset_with_xarray renames ensemble-> member, need to do this here")
 
-    if model_type == "nested-lam":
+    if "nested" in model_type:
         assert lam_index is not None
         if "lam" in model_type:
             xds = xds.isel(cell=slice(lam_index))
+        else:
+            xds = regrid_nested_to_latlon(
+                xds,
+                lam_index=lam_index,
+                lcc_info=lcc_info,
+                horizontal_regrid_kwargs=horizontal_regrid_kwargs,
+            )
 
     if load:
         xds = xds.load()

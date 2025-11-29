@@ -76,6 +76,12 @@ def main(config):
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
     do_any_regridding = target_regrid_kwargs or forecast_regrid_kwargs
 
+    if model_type == "nested-global":
+        config["horizontal_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+            anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
+            horizontal_regrid_kwargs=config["horizontal_regrid_kwargs"],
+        )
+
     # Verification dataset
     vds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
@@ -111,6 +117,7 @@ def main(config):
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
                 reshape_cell_to_2d=True,
+                horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
                 **subsample_kwargs,
             )
         else:

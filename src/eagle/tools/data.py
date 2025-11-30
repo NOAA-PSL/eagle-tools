@@ -81,7 +81,7 @@ def open_anemoi_dataset(
     # Now variables
     # TODO: decide how to use this "var_indices" thing
     var_indices = ads.to_index(date=None, variable=vars_of_interest)
-    member = member if member else slice(None, None)
+    member = slice(None, None) if member is None else member
 
     # This next line brings the subsampled array into memory
     data = ads[:, var_indices, member, :]

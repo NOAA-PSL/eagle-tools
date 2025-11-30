@@ -15,7 +15,7 @@ import cmocean
 import xmovie
 
 from eagle.tools.log import setup_simple_log
-from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset
+from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset
 
 logger = logging.getLogger("eagle.tools")
 
@@ -187,7 +187,7 @@ def main(config, mode):
     logger.info(f"Time Bounds:\n\tt0 = {st0}\n\ttf = {stf}\n")
 
     # Target dataset
-    tds = open_anemoi_dataset(
+    tds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
         trim_edge=config.get("trim_edge", None),
         rename_to_longnames=True,

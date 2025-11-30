@@ -27,7 +27,7 @@ def trim_xarray_edge(xds, trim_edge):
     return xds
 
 
-def open_anemoi_dataset(
+def open_anemoi_dataset_with_xarray(
     path: str,
     levels: Sequence[float | int] = None,
     vars_of_interest: Sequence[str] = None,
@@ -55,7 +55,7 @@ def open_anemoi_dataset(
         try:
             xds = reshape_cell_to_latlon(xds)
         except:
-            logger.warning("open_anemoi_dataset: could not reshape_cell_to_2d, skipping...")
+            logger.warning("open_anemoi_dataset_with_xarray: could not reshape_cell_to_2d, skipping...")
     return xds
 
 
@@ -78,7 +78,7 @@ def open_anemoi_inference_dataset(
     xds = convert_anemoi_inference_dataset(ids)
     xds = subsample(xds, levels, vars_of_interest, member=member)
     if "ensemble" in xds.dims:
-        raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset renames ensemble-> member, need to do this here")
+        raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset_with_xarray renames ensemble-> member, need to do this here")
 
     if model_type == "nested-lam":
         assert lam_index is not None

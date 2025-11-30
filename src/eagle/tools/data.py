@@ -1,3 +1,4 @@
+from typing import Sequence, Any
 import logging
 from collections.abc import Sequence
 import importlib.resources
@@ -6,6 +7,8 @@ import yaml
 import numpy as np
 import xarray as xr
 import pandas as pd
+
+import anemoi.datasets
 
 from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_dataset
 
@@ -27,6 +30,108 @@ def trim_xarray_edge(xds, trim_edge):
     return xds
 
 
+def open_anemoi_dataset(
+    *args: Any,
+    model_type: str,
+    t0: str,
+    tf: str,
+    levels: Sequence[float | int] | None = None,
+    vars_of_interest: Sequence[str] | None = None,
+    rename_to_longnames: bool = False,
+    reshape_cell_to_2d: bool = False,
+    member: int | None = None,
+    **kwargs: Any,
+) -> Any:
+    """
+    Wrapper for anemoi.datasets.open_dataset that applies immediate subsampling
+    and processing.
+
+    Note:
+        This will bring the resulting dataset into memory, so use the subsampling keyword arguments to trim down the dataset.
+
+    Parameters
+    ----------
+    *args, **kwargs :
+        Passed directly to anemoi.datasets.open_dataset().
+    model_type: str
+        "global", "nested-lam", or "nested-global" for now
+    t0 : str
+        Starting date to select
+    tf : str
+        End date to select
+    levels : Sequence[float | int], optional
+        Select specific vertical levels.
+    vars_of_interest : Sequence[str], optional
+        Select specific variables/parameters.
+    rename_to_longnames : bool, default False
+        Renames variables to their descriptive long names.
+    reshape_cell_to_2d : bool, default False
+        Reshapes unstructured grid cells to 2D lat/lon.
+    member : int, optional
+        Selects a specific ensemble member.
+
+
+    Returns
+    -------
+    dataset : The processed dataset object.
+    """
+
+    ads = anemoi.datasets.open_dataset(*args, start=t0, end=tf, **kwargs)
+
+    # Now variables
+    # TODO: decide how to use this "var_indices" thing
+    var_indices = ads.to_index(date=None, variable=vars_of_interest)
+    member = member if member else slice(None, None)
+
+    # This next line brings the subsampled array into memory
+    data = ads[:, var_indices, member, :]
+
+    # Now we convert it to xarray to work with the rest of this package
+    xds = xr.DataArray(
+        data,
+        coords={
+            "time": np.arange(ads.shape[0]),
+            "variable": np.arange(ads.shape[1]),
+            "ensemble": np.arange(ads.shape[2]),
+            "cell": np.arange(ads.shape[3]),
+        },
+        dims=("time", "variable", "ensemble", "cell"),
+    )
+    xds = xds.load() # TODO: this should do nothing ...
+    xds = xds.squeeze()
+    xds["latitudes"] = xr.DataArray(ads.latitudes, coords=xds["cell"].coords)
+    xds["longitudes"] = xr.DataArray(ads.longitudes, coords=xds["cell"].coords)
+    xds["dates"] = xr.DataArray(ads.dates, dims="time")
+    xds = expand_anemoi_dataset(xds, "data", ads.variables)
+
+    for key in ["x", "y"]:
+        if key in ads:
+            xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
+            xds = xds.set_coords(key)
+
+    xds = xds.rename({"ensemble": "member"})
+
+    # TODO: is this necessary?
+    # Note that the anemoi dataset chunks have all variables and levels together
+    # so it doesn't really matter if we subsample variables above or here
+    xds = subsample(xds, levels, vars_of_interest, member=member)
+    if rename_to_longnames:
+        xds = rename(xds)
+
+    if reshape_cell_to_2d and "global" in model_type:
+        try:
+            xds = reshape_cell_to_latlon(xds)
+        except:
+            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (latitude, longitude), skipping...")
+
+    elif reshape_cell_to_2d and "lam" in model_type:
+        try:
+            xds = reshape_cell_to_xy(xds, **lcc_info)
+        except:
+            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (y, x), skipping...")
+    return xds
+
+
 def open_anemoi_dataset_with_xarray(
     path: str,
     levels: Sequence[float | int] = None,
@@ -36,6 +141,10 @@ def open_anemoi_dataset_with_xarray(
     reshape_cell_to_2d: bool = False,
     member: int | None = None,
 ) -> xr.Dataset:
+    """
+    Note that the result of this and `open_anemoi_dataset` are the same,
+    except that this does not load the data into memory.
+    """
 
     ads = xr.open_zarr(path)
     xds = expand_anemoi_dataset(ads, "data", ads.attrs["variables"])

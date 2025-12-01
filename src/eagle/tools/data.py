@@ -76,23 +76,28 @@ def open_anemoi_dataset(
     dataset : The processed dataset object.
     """
 
-    ads = anemoi.datasets.open_dataset(*args, start=t0, end=tf, **kwargs)
+    ads = anemoi.datasets.open_dataset(*args, **kwargs)
+
+    # Note that we can't use the "start/end" kwargs with anemoi.datasets.open_dataset
+    # because they do not work for opening a nested dataset
+    start = ads.to_index(date=t0, variable=0)[0]
+    end = ads.to_index(date=tf, variable=0)[0] + 1
 
     # Since we'll bring the array into memory, we "pre-"subsample the member dim here
     # We use a different variable here so that the subsample function used later
     # is called consistently as with other open_dataset functions
     amember = slice(None, None) if member is None else member
     if isinstance(member, int):
-        amember = [member]
+        amember = slice(member, member+1)
 
     # This next line brings the subsampled array into memory
-    data = ads[:, :, amember, :]
+    data = ads[start:end, :, amember, :]
 
     # Now we convert it to xarray to work with the rest of this package
     xda = xr.DataArray(
         data,
         coords={
-            "time": np.arange(ads.shape[0]),
+            "time": np.arange(end-start),
             "variable": np.arange(ads.shape[1]),
             "ensemble": np.arange(ads.shape[2]),
             "cell": np.arange(ads.shape[3]),
@@ -102,7 +107,7 @@ def open_anemoi_dataset(
     xds = xda.to_dataset(name="data")
     xds["latitudes"] = xr.DataArray(ads.latitudes, coords=xds["cell"].coords)
     xds["longitudes"] = xr.DataArray(ads.longitudes, coords=xds["cell"].coords)
-    xds["dates"] = xr.DataArray(ads.dates, dims="time")
+    xds["dates"] = xr.DataArray(ads.dates[start:end], dims="time")
     xds = xds.set_coords(["latitudes", "longitudes", "dates"])
     xds = expand_anemoi_dataset(xds, "data", ads.variables)
 

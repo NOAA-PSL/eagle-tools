@@ -15,17 +15,31 @@ from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_datas
 logger = logging.getLogger("eagle.tools")
 
 
-def get_xy():
-    xds = xr.open_zarr("/pscratch/sd/t/timothys/nested-eagle/v0/data/hrrr.zarr")
-    return {"x": xds["x"].isel(variable=0,drop=True).load(), "y": xds["y"].isel(variable=0,drop=True).load()}
+def get_xy(n_x, n_y):
+    """Here n_x, n_y are the untrimmed lengths"""
+    x = np.arange(n_x)
+    y = np.arange(n_y)
+    cell = np.arange(n_x * n_y)
+    return {
+        "x": xr.DataArray(x, coords={"x": x}),
+        "y": xr.DataArray(y, coords={"y": y}),
+        "xcell": xr.DataArray(np.tile(x, n_y), coords={"cell": cell}),
+        "ycell": xr.DataArray(np.tile(y, (n_x, 1)).T.flatten(), coords={"cell": cell}),
+    }
 
 
-def trim_xarray_edge(xds, trim_edge):
-    assert all(key in xds for key in ("x", "y"))
-    xds["x"].load()
-    xds["y"].load()
-    condx = ( (xds["x"] > trim_edge[0]-1) & (xds["x"] < xds["x"].max().values-trim_edge[1]+1) ).compute()
-    condy = ( (xds["y"] > trim_edge[2]-1) & (xds["y"] < xds["y"].max().values-trim_edge[3]+1) ).compute()
+def trim_xarray_edge(xds, lcc_info, trim_edge):
+    """lcc_info has n_x and n_y, which are the post-trimmed legnths"""
+    assert all(variable not in xds for variable in ["x", "y"])
+
+    # if x/y don't exist, create them
+    xy = get_xy(
+        n_x=lcc_info["n_x"] + trim_edge[0] + trim_edge[1],
+        n_y=lcc_info["n_y"] + trim_edge[2] + trim_edge[3],
+    )
+
+    condx = ( (xy["xcell"] > trim_edge[0]-1) & (xy["xcell"] < xy["xcell"].max().values-trim_edge[1]+1) ).compute()
+    condy = ( (xy["ycell"] > trim_edge[2]-1) & (xy["ycell"] < xy["ycell"].max().values-trim_edge[3]+1) ).compute()
     xds = xds.where(condx & condy, drop=True)
     return xds
 
@@ -69,6 +83,8 @@ def open_anemoi_dataset(
         Reshapes unstructured grid cells to 2D lat/lon.
     member : int, optional
         Selects a specific ensemble member.
+    lcc_info : dict, optional
+        which contains n_x and n_y, the length of the x/y dimensions after any trimming is done
 
 
     Returns
@@ -118,7 +134,8 @@ def open_anemoi_dataset(
         xds = rename(xds)
 
     if reshape_cell_to_2d:
-        xds = reshape_cell_dim(xds, model_type, lcc_info)
+        trim_edge = ads.arguments["kwargs"].get("trim_edge", None)
+        xds = reshape_cell_dim(xds, model_type, lcc_info, trim_edge=trim_edge)
 
     return xds
 
@@ -141,20 +158,16 @@ def open_anemoi_dataset_with_xarray(
 
     ads = xr.open_zarr(path)
     xds = expand_anemoi_dataset(ads, "data", ads.attrs["variables"])
-    for key in ["x", "y"]:
-        if key in ads:
-            xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
-            xds = xds.set_coords(key)
 
     xds = xds.rename({"ensemble": "member"})
     xds = subsample(xds, levels, vars_of_interest, member=member)
-    if trim_edge is not None:
-        xds = trim_xarray_edge(xds, trim_edge)
+    if trim_edge is not None and "lam" in model_type:
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
     if rename_to_longnames:
         xds = rename(xds)
 
     if reshape_cell_to_2d:
-        xds = reshape_cell_dim(xds, model_type, lcc_info)
+        xds = reshape_cell_dim(xds, model_type, lcc_info, trim_edge)
 
     return xds
 
@@ -172,6 +185,26 @@ def open_anemoi_inference_dataset(
     lcc_info: dict | None = None,
     member: int | None = None,
 ) -> xr.Dataset:
+    """Note that the result from anemoi inference has been trimmed, as far as the LAM is concerned.
+    So if trim_edge is set to True, this will trim the result even more.
+
+    In order to trim the dataset even more and get consistent results with the other open_dataset functions,
+    which will be trimming the original dataset:
+        * the n_x and n_y values inside of lcc_info have to contain the FINAL size
+          (inference trimming plus trimming done here)
+        * the trim_edge argument has to include both trimming amounts
+        * include inside of "lcc_info" an additional "boundary_offset" item, where the values include the amount of
+          trimming done on the data before training
+
+    For example, if model A was trained with trimming (10, 11, 10, 11) and we wanted to compare this output to
+    model B, trained with a trimmed edge of (20, 21, 20, 21) then
+        * open both datasets using the same n_x, n_y values in lcc_info (i.e., original n_x - 41 and n_y - 41)
+        * provide no trimming arguments to model B, but include lcc_info["boundary_offset"] = (20, 21, 20, 21)
+          to indicate the original trimming
+        * open model A with trim_edge = (10, 10, 10, 10) to trim off 10 more points at each boundary,
+          along with lcc_info["boundary_offset"] = (10, 11, 10, 11) to indicate the original trimming
+    """
+
     assert model_type in ("nested-lam", "nested-global", "global")
 
     ids = xr.open_dataset(path, chunks="auto")
@@ -189,20 +222,14 @@ def open_anemoi_inference_dataset(
         xds = xds.load()
 
     if trim_edge is not None and "lam" in model_type:
-        for key in ["x", "y"]:
-            if key in ids:
-                xds[key] = ids[key] if "variable" not in ids[key].dims else ids[key].isel(variable=0, drop=True)
-                xds = xds.set_coords(key)
-            else:
-                xds[key] = get_xy()[key]
-                xds = xds.set_coords(key)
-        xds = trim_xarray_edge(xds, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
+
 
     if rename_to_longnames:
         xds = rename(xds)
 
     if reshape_cell_to_2d:
-        xds = reshape_cell_dim(xds, model_type, lcc_info)
+        xds = reshape_cell_dim(xds, model_type, lcc_info, trim_edge)
 
     return xds
 
@@ -217,6 +244,7 @@ def open_forecast_zarr_dataset(
     load: bool = False,
     reshape_cell_to_2d: bool = False,
     member: int | None = None,
+    lcc_info: dict | None = None,
 ) -> xr.Dataset:
     """This is for non-anemoi forecast datasets, for example HRRR forecast data preprocessed by ufs2arco"""
 
@@ -250,7 +278,7 @@ def open_forecast_zarr_dataset(
         xds = xds.load()
 
     if trim_edge is not None:
-        xds = trim_xarray_edge(xds, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
 
     if rename_to_longnames:
         xds = rename(xds)
@@ -371,7 +399,7 @@ def rename(xds):
             xds = xds.rename({key: val})
     return xds
 
-def reshape_cell_dim(xds, model_type, lcc_info):
+def reshape_cell_dim(xds, model_type, lcc_info=None, trim_edge=None):
     if "global" in model_type:
         try:
             xds = reshape_cell_to_latlon(xds)
@@ -380,10 +408,9 @@ def reshape_cell_dim(xds, model_type, lcc_info):
 
     elif "lam" in model_type:
         assert isinstance(lcc_info, dict), "Need lcc_info={'n_x': ..., 'n_y': ...} for LAM model type"
-        try:
-            xds = reshape_cell_to_xy(xds, **lcc_info)
-        except:
-            logger.warning("reshape_cell_to_2d: could not reshape cell -> (y, x), skipping...")
+        xds = reshape_cell_to_xy(xds, trim_edge=trim_edge, **lcc_info)
+        #except:
+        #    logger.warning("reshape_cell_to_2d: could not reshape cell -> (y, x), skipping...")
     return xds
 
 def reshape_cell_to_latlon(xds):
@@ -417,11 +444,23 @@ def reshape_cell_to_latlon(xds):
         )
     return nds
 
-def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
-    """Note: these indices will not match the original dataset, but they will be dropped anyway"""
+def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None, boundary_offset=None):
+    """Note: for these indices to match, we need to pass the trim edge arg, since
+    it's assumed that the input dataset is already trimmed
 
-    x = np.arange(n_x)
-    y = np.arange(n_y)
+    So to be clear, n_x and n_y are the lengths after trimming
+
+    trim_edge refers to trimming done by the open_dataset functions in this module
+
+    boundary_offset is the degree to which the data was trimmed before being introduced to the model,
+    for example in the case of inference, with a model trained using data trimmed to [10, 11, 10, 11],
+    then boundary_offset = [10, 11, 10, 11] would be provided to make the x/y coordinates consistent
+    """
+    trim_edge = trim_edge if trim_edge else (0, 0, 0, 0)
+    boundary_offset = boundary_offset if boundary_offset else (0, 0, 0, 0)
+
+    x = np.arange(n_x) + trim_edge[0] + boundary_offset[0]
+    y = np.arange(n_y) + trim_edge[2] + boundary_offset[2]
 
     nds = xr.Dataset()
     nds["x"] = xr.DataArray(

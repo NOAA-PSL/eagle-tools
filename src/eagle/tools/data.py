@@ -40,14 +40,14 @@ def open_anemoi_dataset(
     rename_to_longnames: bool = False,
     reshape_cell_to_2d: bool = False,
     member: int | None = None,
+    lcc_info: dict | None = None,
     **kwargs: Any,
 ) -> Any:
     """
-    Wrapper for anemoi.datasets.open_dataset that applies immediate subsampling
-    and processing.
+    Wrapper for anemoi.datasets.open_dataset that applies immediate subsampling and processing.
 
     Note:
-        This will bring the resulting dataset into memory, so use the subsampling keyword arguments to trim down the dataset.
+        This will bring the resulting dataset into memory, so use the subsampling keyword arguments to trim down the dataset. Overall this does the same thing as open_anemoi_dataset_with_xarray, except the latter does not have all of the anemoi.datasets functionality, for instance it cannot open a nested dataset.
 
     Parameters
     ----------
@@ -78,16 +78,18 @@ def open_anemoi_dataset(
 
     ads = anemoi.datasets.open_dataset(*args, start=t0, end=tf, **kwargs)
 
-    # Now variables
-    # TODO: decide how to use this "var_indices" thing
-    var_indices = ads.to_index(date=None, variable=vars_of_interest)
-    member = slice(None, None) if member is None else member
+    # Since we'll bring the array into memory, we "pre-"subsample the member dim here
+    # We use a different variable here so that the subsample function used later
+    # is called consistently as with other open_dataset functions
+    amember = slice(None, None) if member is None else member
+    if isinstance(member, int):
+        amember = [member]
 
     # This next line brings the subsampled array into memory
-    data = ads[:, var_indices, member, :]
+    data = ads[:, :, amember, :]
 
     # Now we convert it to xarray to work with the rest of this package
-    xds = xr.DataArray(
+    xda = xr.DataArray(
         data,
         coords={
             "time": np.arange(ads.shape[0]),
@@ -97,49 +99,35 @@ def open_anemoi_dataset(
         },
         dims=("time", "variable", "ensemble", "cell"),
     )
-    xds = xds.load() # TODO: this should do nothing ...
-    xds = xds.squeeze()
+    xds = xda.to_dataset(name="data")
     xds["latitudes"] = xr.DataArray(ads.latitudes, coords=xds["cell"].coords)
     xds["longitudes"] = xr.DataArray(ads.longitudes, coords=xds["cell"].coords)
     xds["dates"] = xr.DataArray(ads.dates, dims="time")
+    xds = xds.set_coords(["latitudes", "longitudes", "dates"])
     xds = expand_anemoi_dataset(xds, "data", ads.variables)
-
-    for key in ["x", "y"]:
-        if key in ads:
-            xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
-            xds = xds.set_coords(key)
 
     xds = xds.rename({"ensemble": "member"})
 
-    # TODO: is this necessary?
-    # Note that the anemoi dataset chunks have all variables and levels together
-    # so it doesn't really matter if we subsample variables above or here
     xds = subsample(xds, levels, vars_of_interest, member=member)
     if rename_to_longnames:
         xds = rename(xds)
 
-    if reshape_cell_to_2d and "global" in model_type:
-        try:
-            xds = reshape_cell_to_latlon(xds)
-        except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (latitude, longitude), skipping...")
+    if reshape_cell_to_2d:
+        xds = reshape_cell_dim(xds, model_type, lcc_info)
 
-    elif reshape_cell_to_2d and "lam" in model_type:
-        try:
-            xds = reshape_cell_to_xy(xds, **lcc_info)
-        except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (y, x), skipping...")
     return xds
 
 
 def open_anemoi_dataset_with_xarray(
     path: str,
+    model_type: str,
     levels: Sequence[float | int] = None,
     vars_of_interest: Sequence[str] = None,
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     reshape_cell_to_2d: bool = False,
     member: int | None = None,
+    lcc_info: dict | None = None,
 ) -> xr.Dataset:
     """
     Note that the result of this and `open_anemoi_dataset` are the same,
@@ -161,10 +149,8 @@ def open_anemoi_dataset_with_xarray(
         xds = rename(xds)
 
     if reshape_cell_to_2d:
-        try:
-            xds = reshape_cell_to_latlon(xds)
-        except:
-            logger.warning("open_anemoi_dataset_with_xarray: could not reshape_cell_to_2d, skipping...")
+        xds = reshape_cell_dim(xds, model_type, lcc_info)
+
     return xds
 
 
@@ -210,17 +196,8 @@ def open_anemoi_inference_dataset(
     if rename_to_longnames:
         xds = rename(xds)
 
-    if reshape_cell_to_2d and "global" in model_type:
-        try:
-            xds = reshape_cell_to_latlon(xds)
-        except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (latitude, longitude), skipping...")
-
-    elif reshape_cell_to_2d and "lam" in model_type:
-        try:
-            xds = reshape_cell_to_xy(xds, **lcc_info)
-        except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (y, x), skipping...")
+    if reshape_cell_to_2d:
+        xds = reshape_cell_dim(xds, model_type, lcc_info)
 
     return xds
 
@@ -389,6 +366,21 @@ def rename(xds):
             xds = xds.rename({key: val})
     return xds
 
+def reshape_cell_dim(xds, model_type, lcc_info):
+    if "global" in model_type:
+        try:
+            xds = reshape_cell_to_latlon(xds)
+        except:
+            logger.warning("reshape_cell_to_2d: could not reshape cell -> (latitude, longitude), skipping...")
+
+    elif "lam" in model_type:
+        assert isinstance(lcc_info, dict), "Need lcc_info={'n_x': ..., 'n_y': ...} for LAM model type"
+        try:
+            xds = reshape_cell_to_xy(xds, **lcc_info)
+        except:
+            logger.warning("reshape_cell_to_2d: could not reshape cell -> (y, x), skipping...")
+    return xds
+
 def reshape_cell_to_latlon(xds):
 
     lon = np.unique(xds["longitude"])
@@ -441,14 +433,17 @@ def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
 
     coords = [x for x in list(xds.coords) if x not in xds.dims]
     for key in list(xds.data_vars) + coords:
-        dims = tuple(d for d in xds[key].dims if d != "cell")
-        dims += ("y", "x")
-        shape = tuple(len(nds[d]) for d in dims)
-        nds[key] = xr.DataArray(
-            xds[key].data.reshape(shape),
-            dims=dims,
-            attrs=xds[key].attrs.copy(),
-        )
+        if "cell" in xds[key].dims:
+            dims = tuple(d for d in xds[key].dims if d != "cell")
+            dims += ("y", "x")
+            shape = tuple(len(nds[d]) for d in dims)
+            nds[key] = xr.DataArray(
+                xds[key].data.reshape(shape),
+                dims=dims,
+                attrs=xds[key].attrs.copy(),
+            )
+        else:
+            nds[key] = xds[key].copy()
 
     nds = nds.set_coords(coords)
     return nds

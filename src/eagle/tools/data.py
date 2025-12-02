@@ -1,5 +1,5 @@
+from typing import Sequence, Any
 import logging
-from collections.abc import Sequence
 import importlib.resources
 import yaml
 
@@ -7,57 +7,228 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 
+import anemoi.datasets
+
 from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_dataset
 
 logger = logging.getLogger("eagle.tools")
 
+def _get_xy(xds: xr.Dataset, n_x: int, n_y: int) -> xr.Dataset:
+    """
+    Generates x and y coordinates for a LAM dataset.
 
-def get_xy():
-    xds = xr.open_zarr("/pscratch/sd/t/timothys/nested-eagle/v0/data/hrrr.zarr")
-    return {"x": xds["x"].isel(variable=0,drop=True).load(), "y": xds["y"].isel(variable=0,drop=True).load()}
+    Args:
+        xds (xr.Dataset): The input dataset.
+        n_x (int): The untrimmed length of the dataset in the x direction.
+        n_y (int): The untrimmed length of the dataset in the y direction.
 
+    Returns:
+        xr.Dataset: The dataset with 'x' and 'y' added.
+    """
+    x = np.arange(n_x)
+    y = np.arange(n_y)
+    cell = np.arange(n_x * n_y)
 
-def trim_xarray_edge(xds, trim_edge):
-    assert all(key in xds for key in ("x", "y"))
-    xds["x"].load()
-    xds["y"].load()
+    if "cell" in xds.dims:
+        # assume in this case we want the expanded and flattened version
+        xds["x"] = xr.DataArray(np.tile(x, n_y), coords={"cell": cell})
+        xds["y"] = xr.DataArray(np.tile(y, (n_x, 1)).T.flatten(), coords={"cell": cell})
+    else:
+        xds["x"] = xr.DataArray(x, coords={"x": x})
+        xds["y"] = xr.DataArray(y, coords={"y": y})
+    return xds
+
+def trim_xarray_edge(xds: xr.Dataset, lcc_info: dict, trim_edge: Sequence[int]) -> xr.Dataset:
+    """
+    Trim the boundary of a Limited Area Model (LAM) dataset using xarray.
+
+    Args:
+        xds (xr.Dataset): The input dataset to trim.
+        lcc_info (dict): Dictionary containing Lambert Conformal Conic (LCC) projection details.
+            Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``
+            representing the **post-trimmed** lengths.
+        trim_edge (Sequence[int]): A sequence (e.g., [left, right, bottom, top]) defining
+            how many grid points to trim from the edges.
+
+    Returns:
+        xr.Dataset: The trimmed dataset with updated coordinates.
+    """
+    if not {"x", "y"}.issubset(xds.dims):
+        # Note: assuming _get_xy is meant here (was get_xy in original snippet)
+        xds = _get_xy(
+            xds=xds,
+            n_x=lcc_info["n_x"] + trim_edge[0] + trim_edge[1],
+            n_y=lcc_info["n_y"] + trim_edge[2] + trim_edge[3],
+        )
+
     condx = ( (xds["x"] > trim_edge[0]-1) & (xds["x"] < xds["x"].max().values-trim_edge[1]+1) ).compute()
     condy = ( (xds["y"] > trim_edge[2]-1) & (xds["y"] < xds["y"].max().values-trim_edge[3]+1) ).compute()
     xds = xds.where(condx & condy, drop=True)
+
+    # reset either the cell or x & t coordinate values to be 0->len(coord)
+    # incoming datasets are either flattened and so have cell as the underlying coordinate
+    # or are already 2D, which is only the case for zarr forecast data
+    # (i.e., from grib archives -> zarr via ufs2arco)
+    if "cell" in xds.dims:
+        xds["cell"] = xr.DataArray(
+            np.arange(len(xds.cell)),
+            dims="cell",
+        )
+        for key in ["x", "y"]:
+            if key in xds:
+                xds = xds.drop_vars(key)
+    else:
+        xds["x"] = xr.DataArray(
+            np.arange(len(xds.x)),
+            dims="x",
+        )
+        xds["y"] = xr.DataArray(
+            np.arange(len(xds.y)),
+            dims="y",
+        )
+        if "cell" in xds:
+            xds = xds.drop_vars("cell")
     return xds
 
-
 def open_anemoi_dataset(
+    *args: Any,
+    model_type: str,
+    t0: str,
+    tf: str,
+    levels: Sequence[float | int] | None = None,
+    vars_of_interest: Sequence[str] | None = None,
+    rename_to_longnames: bool = False,
+    reshape_cell_to_2d: bool = False,
+    member: int | None = None,
+    lcc_info: dict | None = None,
+    **kwargs: Any,
+) -> xr.Dataset:
+    """
+    Wrapper for ``anemoi.datasets.open_dataset`` that applies immediate subsampling and processing.
+
+    This function opens a dataset and immediately processes it based on the provided
+    subsampling arguments. It provides similar functionality to ``open_anemoi_dataset_with_xarray``
+    but retains specific ``anemoi.datasets`` features, such as the ability to open nested datasets.
+
+    .. warning::
+        This function loads the resulting dataset into memory. You must use the subsampling
+        keyword arguments (e.g., ``t0``, ``tf``, ``levels``) to trim the dataset size
+        before loading to avoid OutOfMemory errors.
+
+    Args:
+        *args: Passed directly to ``anemoi.datasets.open_dataset()``.
+        model_type (str): The specific model configuration. Options include: ``"global"``, ``"lam"``, ``"nested-lam"``, or ``"nested-global"``.
+        t0 (str): The starting date/timestamp for selection (inclusive).
+        tf (str): The ending date/timestamp for selection (inclusive).
+        levels (Sequence[float | int], optional): Specific vertical levels to select from the dataset.
+        vars_of_interest (Sequence[str], optional): A list of specific variable or parameter names to keep.
+        rename_to_longnames (bool, optional): If True, renames variables to their descriptive long names. Defaults to False.
+        reshape_cell_to_2d (bool, optional): If True, reshapes unstructured grid cells into a 2D grid. Defaults to False.
+        member (int, optional): The specific ensemble member ID to select.
+        lcc_info (dict, optional): Dictionary containing Lambert Conformal Conic (LCC) projection details.
+            Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``.
+            Note these lengths are after any trimming.
+        **kwargs: Passed directly to ``anemoi.datasets.open_dataset()``.
+
+    Returns:
+        xr.Dataset: The subsampled and processed dataset.
+    """
+
+    ads = anemoi.datasets.open_dataset(*args, **kwargs)
+
+    # Note that we can't use the "start/end" kwargs with anemoi.datasets.open_dataset
+    # because they do not work for opening a nested dataset
+    start = ads.to_index(date=t0, variable=0)[0]
+    end = ads.to_index(date=tf, variable=0)[0] + 1
+
+    # Since we'll bring the array into memory, we "pre-"subsample the member dim here
+    # We use a different variable here so that the subsample function used later
+    # is called consistently as with other open_dataset functions
+    amember = slice(None, None) if member is None else member
+    if isinstance(member, int):
+        amember = slice(member, member+1)
+
+    # This next line brings the subsampled array into memory
+    data = ads[start:end, :, amember, :]
+
+    # Now we convert it to xarray to work with the rest of this package
+    xda = xr.DataArray(
+        data,
+        coords={
+            "time": np.arange(end-start),
+            "variable": np.arange(ads.shape[1]),
+            "ensemble": np.arange(ads.shape[2]),
+            "cell": np.arange(ads.shape[3]),
+        },
+        dims=("time", "variable", "ensemble", "cell"),
+    )
+    xds = xda.to_dataset(name="data")
+    xds["latitudes"] = xr.DataArray(ads.latitudes, coords=xds["cell"].coords)
+    xds["longitudes"] = xr.DataArray(ads.longitudes, coords=xds["cell"].coords)
+    xds["dates"] = xr.DataArray(ads.dates[start:end], dims="time")
+    xds = xds.set_coords(["latitudes", "longitudes", "dates"])
+    xds = expand_anemoi_dataset(xds, "data", ads.variables)
+
+    xds = xds.rename({"ensemble": "member"})
+
+    xds = subsample(xds, levels, vars_of_interest, member=member)
+    if rename_to_longnames:
+        xds = rename(xds)
+
+    if reshape_cell_to_2d:
+        xds = reshape_cell_dim(xds, model_type, lcc_info)
+
+    return xds
+
+def open_anemoi_dataset_with_xarray(
     path: str,
+    model_type: str,
     levels: Sequence[float | int] = None,
     vars_of_interest: Sequence[str] = None,
     trim_edge: Sequence[int] = None,
     rename_to_longnames: bool = False,
     reshape_cell_to_2d: bool = False,
     member: int | None = None,
+    lcc_info: dict | None = None,
 ) -> xr.Dataset:
+    """
+    Opens an Anemoi dataset using xarray directly (lazy loading).
+
+    Note that the result of this and ``open_anemoi_dataset`` are the same,
+    except that this does not load the data into memory immediately.
+
+    Args:
+        path (str): Path to the Zarr store.
+        model_type (str): The specific model configuration. Options include: ``"global"``, ``"lam"``, ``"nested-lam"``, or ``"nested-global"``.
+        levels (Sequence[float | int], optional): Vertical levels to select.
+        vars_of_interest (Sequence[str], optional): specific variables to keep.
+        trim_edge (Sequence[int], optional): Edge trimming parameters for LAM datasets.
+        rename_to_longnames (bool, optional): Rename vars to long names. Defaults to False.
+        reshape_cell_to_2d (bool, optional): Reshape cells to 2D grid. Defaults to False.
+        member (int, optional): Specific ensemble member to select.
+        lcc_info (dict, optional): Dictionary containing Lambert Conformal Conic (LCC) projection details.
+            Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``.
+            Note these lengths are after any trimming.
+
+    Returns:
+        xr.Dataset: The lazily loaded dataset.
+    """
 
     ads = xr.open_zarr(path)
     xds = expand_anemoi_dataset(ads, "data", ads.attrs["variables"])
-    for key in ["x", "y"]:
-        if key in ads:
-            xds[key] = ads[key] if "variable" not in ads[key].dims else ads[key].isel(variable=0, drop=True)
-            xds = xds.set_coords(key)
 
     xds = xds.rename({"ensemble": "member"})
     xds = subsample(xds, levels, vars_of_interest, member=member)
-    if trim_edge is not None:
-        xds = trim_xarray_edge(xds, trim_edge)
+    if trim_edge is not None and "lam" in model_type:
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
+
     if rename_to_longnames:
         xds = rename(xds)
 
     if reshape_cell_to_2d:
-        try:
-            xds = reshape_cell_to_latlon(xds)
-        except:
-            logger.warning("open_anemoi_dataset: could not reshape_cell_to_2d, skipping...")
-    return xds
+        xds = reshape_cell_dim(xds, model_type, lcc_info)
 
+    return xds
 
 def open_anemoi_inference_dataset(
     path: str,
@@ -72,13 +243,44 @@ def open_anemoi_inference_dataset(
     lcc_info: dict | None = None,
     member: int | None = None,
 ) -> xr.Dataset:
+    """
+    Opens an inference dataset from Anemoi.
+
+    Note that the result from anemoi inference has often been trimmed already,
+    as far as the LAM is concerned. If ``trim_edge`` is provided, this will trim
+    the result further.
+
+    Args:
+        path (str): Path to the dataset.
+        model_type (str): "nested-lam", "nested-global", or "global".
+        lam_index (int, optional): Index for LAM selection in nested models.
+        levels (Sequence[float | int], optional): Vertical levels to select.
+        vars_of_interest (Sequence[str], optional): specific variables to keep.
+        trim_edge (Sequence[int], optional): Additional edge trimming.
+        rename_to_longnames (bool, optional): Rename vars to long names. Defaults to False.
+        load (bool, optional): If True, load data into memory. Defaults to False.
+        reshape_cell_to_2d (bool, optional): Reshape cells to 2D grid. Defaults to False.
+        lcc_info (dict, optional): Dictionary containing Lambert Conformal Conic (LCC) projection details.
+            Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``.
+            Note these lengths are after any trimming.
+        member (int, optional): Specific ensemble member to select.
+
+    Returns:
+        xr.Dataset: The inference dataset.
+    """
+
     assert model_type in ("nested-lam", "nested-global", "global")
 
     ids = xr.open_dataset(path, chunks="auto")
     xds = convert_anemoi_inference_dataset(ids)
+    # TODO: add this next line to ufs2arco, if keeping the convert function in that repo
+    xds["cell"] = xr.DataArray(
+        np.arange(len(xds.cell)),
+        dims=("cell",),
+    )
     xds = subsample(xds, levels, vars_of_interest, member=member)
     if "ensemble" in xds.dims:
-        raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset renames ensemble-> member, need to do this here")
+        raise NotImplementedError(f"note to future self from eagle.tools.data: open_anemoi_dataset_with_xarray renames ensemble-> member, need to do this here")
 
     if model_type == "nested-lam":
         assert lam_index is not None
@@ -89,32 +291,15 @@ def open_anemoi_inference_dataset(
         xds = xds.load()
 
     if trim_edge is not None and "lam" in model_type:
-        for key in ["x", "y"]:
-            if key in ids:
-                xds[key] = ids[key] if "variable" not in ids[key].dims else ids[key].isel(variable=0, drop=True)
-                xds = xds.set_coords(key)
-            else:
-                xds[key] = get_xy()[key]
-                xds = xds.set_coords(key)
-        xds = trim_xarray_edge(xds, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
 
     if rename_to_longnames:
         xds = rename(xds)
 
-    if reshape_cell_to_2d and "global" in model_type:
-        try:
-            xds = reshape_cell_to_latlon(xds)
-        except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (latitude, longitude), skipping...")
-
-    elif reshape_cell_to_2d and "lam" in model_type:
-        try:
-            xds = reshape_cell_to_xy(xds, **lcc_info)
-        except:
-            logger.warning("open_anemoi_inference_dataset: could not reshape cell -> (y, x), skipping...")
+    if reshape_cell_to_2d:
+        xds = reshape_cell_dim(xds, model_type, lcc_info)
 
     return xds
-
 
 def open_forecast_zarr_dataset(
     path: str,
@@ -126,8 +311,28 @@ def open_forecast_zarr_dataset(
     load: bool = False,
     reshape_cell_to_2d: bool = False,
     member: int | None = None,
+    lcc_info: dict | None = None,
 ) -> xr.Dataset:
-    """This is for non-anemoi forecast datasets, for example HRRR forecast data preprocessed by ufs2arco"""
+    """
+    Opens non-anemoi forecast datasets (e.g., HRRR forecast data preprocessed by ufs2arco).
+
+    Args:
+        path (str): Path to the Zarr dataset.
+        t0 (pd.Timestamp): The initialization time to select.
+        levels (Sequence[float | int], optional): Vertical levels to select.
+        vars_of_interest (Sequence[str], optional): specific variables to keep.
+        trim_edge (Sequence[int], optional): Edge trimming parameters.
+        rename_to_longnames (bool, optional): Rename vars to long names. Defaults to False.
+        load (bool, optional): If True, load data into memory. Defaults to False.
+        reshape_cell_to_2d (bool, optional): Reshape cells to 2D grid. Defaults to False.
+        member (int, optional): Specific ensemble member.
+        lcc_info (dict, optional): Dictionary containing Lambert Conformal Conic (LCC) projection details.
+            Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``.
+            Note these lengths are after any trimming.
+
+    Returns:
+        xr.Dataset: The forecast dataset.
+    """
 
     xds = xr.open_zarr(path, decode_timedelta=True)
     xds = xds.sel(t0=t0).squeeze(drop=True)
@@ -152,22 +357,40 @@ def open_forecast_zarr_dataset(
             coords=xds.cell2d.coords,
         )
         xds = xds.swap_dims({"cell2d": "cell"})
-        xds = xds.drop_vars("cell2d")
+        for key in ["x", "y", "cell2d"]:
+            if key in xds:
+                xds = xds.drop_vars(key)
     xds = xds.drop_vars(["t0", "valid_time"])
 
     if load:
         xds = xds.load()
 
     if trim_edge is not None:
-        xds = trim_xarray_edge(xds, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
 
     if rename_to_longnames:
         xds = rename(xds)
     return xds
 
+def subsample(
+    xds: xr.Dataset,
+    levels: Sequence[float | int] = None,
+    vars_of_interest: Sequence[str] = None,
+    member: int | None = None
+) -> xr.Dataset:
+    """
+    Subsample vertical levels, ensemble member(s), and variables.
 
-def subsample(xds, levels=None, vars_of_interest=None, member=None):
-    """Subsample vertical levels, ensemble member(s), and variables
+    Also calculates wind speed derived variables if requested in ``vars_of_interest``.
+
+    Args:
+        xds (xr.Dataset): Input dataset.
+        levels (Sequence[float | int], optional): Vertical levels to keep.
+        vars_of_interest (Sequence[str], optional): Variables to keep. If None, only forces drop of forcing vars.
+        member (int, optional): Ensemble member to keep.
+
+    Returns:
+        xr.Dataset: The subsampled dataset.
     """
 
     if levels is not None:
@@ -185,8 +408,16 @@ def subsample(xds, levels=None, vars_of_interest=None, member=None):
 
     return xds
 
+def drop_forcing_vars(xds: xr.Dataset) -> xr.Dataset:
+    """
+    Drops standard forcing variables (e.g., Julian day, solar angles, orography) from the dataset.
 
-def drop_forcing_vars(xds):
+    Args:
+        xds (xr.Dataset): Input dataset.
+
+    Returns:
+        xr.Dataset: Dataset with forcing variables removed.
+    """
     for key in [
         "cos_julian_day",
         "sin_julian_day",
@@ -208,8 +439,10 @@ def drop_forcing_vars(xds):
             xds = xds.drop_vars(key)
     return xds
 
-
-def _wind_speed(u, v, long_name):
+def _wind_speed(u: xr.DataArray, v: xr.DataArray, long_name: str) -> xr.DataArray:
+    """
+    Calculates wind speed magnitude from U and V components.
+    """
     return xr.DataArray(
         np.sqrt(u**2 + v**2),
         coords=u.coords,
@@ -219,7 +452,17 @@ def _wind_speed(u, v, long_name):
         },
     )
 
-def calc_wind_speed(xds, vars_of_interest):
+def calc_wind_speed(xds: xr.Dataset, vars_of_interest: Sequence[str]) -> xr.Dataset:
+    """
+    Calculates and adds wind speed variables (10m, 80m, 100m, or bulk) if requested.
+
+    Args:
+        xds (xr.Dataset): Input dataset containing U/V components.
+        vars_of_interest (Sequence[str]): List of variables desired (checks for specific wind speed keys).
+
+    Returns:
+        xr.Dataset: Dataset with calculated wind speed variables added.
+    """
 
     if "10m_wind_speed" in vars_of_interest:
         if "ugrd10m" in xds:
@@ -270,7 +513,16 @@ def calc_wind_speed(xds, vars_of_interest):
         xds["wind_speed"] = _wind_speed(u, v, "Wind Speed")
     return xds
 
-def rename(xds):
+def rename(xds: xr.Dataset) -> xr.Dataset:
+    """
+    Renames dataset variables based on an external YAML configuration file.
+
+    Args:
+        xds (xr.Dataset): Input dataset.
+
+    Returns:
+        xr.Dataset: Dataset with renamed variables.
+    """
     rename_path = importlib.resources.files("eagle.tools.config") / "rename.yaml"
     with rename_path.open("r") as f:
         rdict = yaml.safe_load(f)
@@ -280,7 +532,44 @@ def rename(xds):
             xds = xds.rename({key: val})
     return xds
 
-def reshape_cell_to_latlon(xds):
+def reshape_cell_dim(xds: xr.Dataset, model_type: str, lcc_info: dict = None) -> xr.Dataset:
+    """
+    Reshapes the 'cell' dimension into standard 2D spatial dimensions.
+
+    Args:
+        xds (xr.Dataset): Input dataset with a 'cell' dimension.
+        model_type (str): "global" (maps to lat/lon) or "lam" (maps to y/x).
+        lcc_info (dict, optional): Dictionary containing Lambert Conformal Conic (LCC) projection details.
+            Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``.
+            Required if model_type contains "lam".
+            Note these lengths are after any trimming.
+
+    Returns:
+        xr.Dataset: Reshaped dataset.
+    """
+    if "global" in model_type:
+        try:
+            xds = reshape_cell_to_latlon(xds)
+        except:
+            logger.warning("reshape_cell_to_2d: could not reshape cell -> (latitude, longitude), skipping...")
+
+    elif "lam" in model_type:
+        assert isinstance(lcc_info, dict), "Need lcc_info={'n_x': ..., 'n_y': ...} for LAM model type"
+        xds = reshape_cell_to_xy(xds, **lcc_info)
+        #except:
+        #    logger.warning("reshape_cell_to_2d: could not reshape cell -> (y, x), skipping...")
+    return xds
+
+def reshape_cell_to_latlon(xds: xr.Dataset) -> xr.Dataset:
+    """
+    Reshapes a dataset with a 'cell' dimension into 'latitude' and 'longitude' dimensions.
+
+    Args:
+        xds (xr.Dataset): Input dataset.
+
+    Returns:
+        xr.Dataset: Reshaped dataset.
+    """
 
     lon = np.unique(xds["longitude"])
     lat = np.unique(xds["latitude"])
@@ -311,9 +600,18 @@ def reshape_cell_to_latlon(xds):
         )
     return nds
 
-def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
-    """Note: these indices will not match the original dataset, but they will be dropped anyway"""
+def reshape_cell_to_xy(xds: xr.Dataset, n_x: int, n_y: int) -> xr.Dataset:
+    """
+    Reshapes a dataset with a 'cell' dimension into 'y' and 'x' dimensions.
 
+    Args:
+        xds (xr.Dataset): Input dataset.
+        n_x (int): The final length of the data in the x direction (after any trimming).
+        n_y (int): The final length of the data in the y direction (after any trimming).
+
+    Returns:
+        xr.Dataset: Reshaped dataset.
+    """
     x = np.arange(n_x)
     y = np.arange(n_y)
 
@@ -332,14 +630,17 @@ def reshape_cell_to_xy(xds, n_x, n_y, trim_edge=None):
 
     coords = [x for x in list(xds.coords) if x not in xds.dims]
     for key in list(xds.data_vars) + coords:
-        dims = tuple(d for d in xds[key].dims if d != "cell")
-        dims += ("y", "x")
-        shape = tuple(len(nds[d]) for d in dims)
-        nds[key] = xr.DataArray(
-            xds[key].data.reshape(shape),
-            dims=dims,
-            attrs=xds[key].attrs.copy(),
-        )
+        if "cell" in xds[key].dims:
+            dims = tuple(d for d in xds[key].dims if d != "cell")
+            dims += ("y", "x")
+            shape = tuple(len(nds[d]) for d in dims)
+            nds[key] = xr.DataArray(
+                xds[key].data.reshape(shape),
+                dims=dims,
+                attrs=xds[key].attrs.copy(),
+            )
+        else:
+            nds[key] = xds[key].copy()
 
     nds = nds.set_coords(coords)
     return nds

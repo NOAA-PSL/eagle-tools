@@ -30,6 +30,7 @@ def main(config):
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
         "member": config.get("member", None),
+        "lcc_info": config.get("lcc_info", None),
     }
 
     if model_type == "nested-global":
@@ -52,7 +53,6 @@ def main(config):
                 path=path_in,
                 model_type=model_type,
                 lam_index=config.get("lam_index", None),
-                lcc_info=config.get("lcc_info", None),
                 horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
                 **open_kwargs,
             )

@@ -72,6 +72,7 @@ def main(config):
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "lcc_info": config.get("lcc_info", None),
     }
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
@@ -86,7 +87,9 @@ def main(config):
     # Verification dataset
     vds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
+        model_type=model_type,
         trim_edge=config.get("trim_edge", None),
+        reshape_cell_to_2d=True,
         **subsample_kwargs,
     )
 
@@ -94,7 +97,7 @@ def main(config):
     latlon_weights = get_gridcell_area_weights(
         vds,
         model_type,
-        reshape_cell_to_2d=do_any_regridding,
+        reshape_cell_to_2d=True,
         regrid_kwargs=target_regrid_kwargs,
     )
 
@@ -136,10 +139,6 @@ def main(config):
             fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
         tds = vds.sel(time=fds.time.values).load()
-        try:
-            tds = reshape_cell_to_latlon(tds)
-        except:
-            logger.warning(f"Could not reshape target data to latlon")
         if target_regrid_kwargs is not None:
             tds = horizontal_regrid(tds, **target_regrid_kwargs)
 

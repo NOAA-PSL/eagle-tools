@@ -125,6 +125,7 @@ def main(config):
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "lcc_info": config.get("lcc_info", None),
     }
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
@@ -142,6 +143,7 @@ def main(config):
     # Verification dataset
     vds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
+        model_type=model_type,
         trim_edge=config.get("trim_edge", None),
         **subsample_kwargs,
     )
@@ -223,8 +225,9 @@ def main(config):
     mae_container = topo.gather(mae_container)
 
     if topo.is_root:
-        rmse_container = [xds for sublist in rmse_container for xds in sublist]
-        mae_container = [xds for sublist in mae_container for xds in sublist]
+        if use_mpi:
+            rmse_container = [xds for sublist in rmse_container for xds in sublist]
+            mae_container = [xds for sublist in mae_container for xds in sublist]
 
         # Sort before passing to xarray, potentially faster
         rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])

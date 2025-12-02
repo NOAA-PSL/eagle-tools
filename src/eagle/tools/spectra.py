@@ -79,11 +79,13 @@ def main(config):
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "lcc_info": config.get("lcc_info", None),
     }
 
     # Verification dataset
     vds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
+        model_type=model_type,
         trim_edge=config.get("trim_edge", None),
         **subsample_kwargs,
     )

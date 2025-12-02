@@ -9,7 +9,7 @@ import anemoi.datasets
 
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
-from eagle.tools.data import reshape_cell_to_xy, reshape_cell_to_latlon
+from eagle.tools.reshape import reshape_cell_to_xy, reshape_cell_to_latlon
 
 logger = logging.getLogger("eagle.tools")
 
@@ -19,6 +19,26 @@ def _rename(xds: xr.Dataset) -> xr.Dataset:
         if key in xds:
             xds = xds.rename({key: val})
     return xds
+
+def get_nested_plot_box(xds: xr.Dataset, lam_index: int, lcc_info: dict) -> dict:
+    """
+    Args:
+        xds (xr.Dataset): created by ``eagle.tools.data.open_anemoi_dataset()``
+        lcc_info
+    """
+    lam = xds.isel(cell=slice(lam_index))
+    lam = lam.drop_vars(xds.data_vars)
+    lam = reshape_cell_to_xy(lam, **lcc_info)
+
+    box = {}
+    for key in ["x", "y"]:
+        idx = np.arange(0, len(lam[key]), 10)
+        if idx[-1] != len(lam[key]) - 1:
+            idx = np.append(idx, len(lam[key]) - 1)
+        box[key] = idx
+    box["longitude"] = lam["longitude"].values
+    box["latitude"] = lam["latitude"].values
+    return box
 
 
 def prepare_regrid_target_mask(

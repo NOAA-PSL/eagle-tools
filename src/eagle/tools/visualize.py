@@ -15,7 +15,8 @@ import cmocean
 import xmovie
 
 from eagle.tools.log import setup_simple_log
-from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset
+from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset
+from eagle.tools.nested import get_nested_plot_box
 
 logger = logging.getLogger("eagle.tools")
 
@@ -55,6 +56,38 @@ def get_precip_kwargs():
     }
 
 
+def plot_nested_box(ax, box):
+    kw = {
+        "color": "gray",
+        "transform": ccrs.PlateCarree(),
+        "lw": 1,
+        "alpha": .8,
+    }
+    for idx in [0, -1]:
+        ax.plot(box["longitude"][box["y"], idx], box["latitude"][box["y"], idx], **kw)
+        ax.plot(box["longitude"][idx, box["x"]], box["latitude"][idx, box["x"]], **kw)
+
+
+def nested_scatter(ax, xds, varname, lam_index, box, **kwargs):
+    mappables = []
+    for slc, s in zip(
+        [slice(None, lam_index), slice(lam_index, None)],
+        [1/4, 12],
+    ):
+        p = ax.scatter(
+            xds["longitude"].isel(cell=slc),
+            xds["latitude"].isel(cell=slc),
+            c=xds[varname].isel(cell=slc),
+            s=s,
+            transform=ccrs.PlateCarree(),
+            **kwargs,
+        )
+        mappables.append(p)
+
+    plot_nested_box(ax, box)
+    return mappables[0]
+
+
 def plot_single_timestamp(xds, fig, time, *args, **kwargs):
 
     axs = []
@@ -65,6 +98,9 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     cbar_kwargs = kwargs.pop("cbar_kwargs", {})
     extend = kwargs.pop("extend", None)
     st0 = kwargs.pop("st0", "")
+    model_type = kwargs.pop("model_type", "")
+    lam_index = kwargs.pop("lam_index", None)
+    box = kwargs.pop("box", None)
 
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
@@ -76,13 +112,18 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
 
     for ii, label in enumerate(["target", "prediction"]):
         ax = fig.add_subplot(1, 2, ii+1, **subplot_kw)
-        p = ax.pcolormesh(
-            xds.longitude,
-            xds.latitude,
-            xds[label].isel(time=time).values,
-            transform=ccrs.PlateCarree(),
-            **kwargs,
-        )
+
+        if model_type == "nested":
+            p = nested_scatter(ax, xds.isel(time=time), label, lam_index, box, **kwargs)
+
+        else:
+            p = ax.pcolormesh(
+                xds.longitude,
+                xds.latitude,
+                xds[label].isel(time=time).values,
+                transform=ccrs.PlateCarree(),
+                **kwargs,
+            )
         ax.set(title=xds[label].nice_name)
         axs.append(ax)
 
@@ -106,6 +147,7 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     )
     fig.set_constrained_layout(True)
     return None, None
+
 
 def create_media(
     xds: xr.Dataset,
@@ -143,7 +185,7 @@ def create_media(
             pixelwidth=pixelwidth,
             pixelheight=pixelheight,
             dpi=dpi,
-            **options
+            **options,
         )
         mov.save(
             path,
@@ -174,6 +216,8 @@ def main(config, mode):
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "lcc_info": config.get("lcc_info", None),
+        "member": config.get("member", None),
     }
     output_dir = config["output_path"]
     if not os.path.isdir(output_dir):
@@ -187,12 +231,14 @@ def main(config, mode):
     logger.info(f"Time Bounds:\n\tt0 = {st0}\n\ttf = {stf}\n")
 
     # Target dataset
-    tds = open_anemoi_dataset_with_xarray(
-        path=config["verification_dataset_path"],
-        trim_edge=config.get("trim_edge", None),
+    tds = open_anemoi_dataset(
+        model_type=model_type,
+        t0=str(t0),
+        tf=str(tf),
         rename_to_longnames=True,
-        reshape_cell_to_2d=True,
+        reshape_cell_to_2d=model_type != "nested",
         **subsample_kwargs,
+        **config["verification_dataset_kwargs"],
     )
     tds = tds.squeeze("member")
     if mode == "figure":
@@ -206,6 +252,7 @@ def main(config, mode):
         f"{config['forecast_path']}/{st0}.{config['lead_time']}.nc",
         model_type=model_type,
         lam_index=lam_index,
+        trim_edge=config.get("trim_forecast_edge", None),
         rename_to_longnames=True,
         reshape_cell_to_2d=True,
         **subsample_kwargs,
@@ -242,12 +289,19 @@ def main(config, mode):
         if key in pds.data_vars
     }
 
+    # for nested, create the little box around the LAM region
+    box = None
+    if model_type == "nested":
+        assert lam_index is not None
+        assert subsample_kwargs["lcc_info"] is not None
+        box = get_nested_plot_box(tds, lam_index, subsample_kwargs["lcc_info"])
+
     # Plot each variable individually
     for varname, options in per_variable_kwargs.items():
 
         # xmovie requires a single dataset, so package up predictions + target for each variable
         ds = xr.Dataset({
-            "prediction": pds[varname].load(),
+            "prediction": pds[varname].reset_coords(drop=True).load(),
             "target": tds[varname].load(),
         })
         ds["prediction"].attrs["nice_name"] = "Prediction: " + config.get("model_name", "")
@@ -270,7 +324,6 @@ def main(config, mode):
             vmin=options.get("vmin", None),
             vmax=options.get("vmax", None),
         )
-        logger.info(f"\tcolorbar extend = {options['extend']}")
 
         # precip is weird, since we don't do vmin/vmax, we do BoundaryNorm colorbar map blah blah
         # since we know it's bounded to be positive in anemoi... at least in this model..
@@ -282,10 +335,17 @@ def main(config, mode):
         options["st0"] = st0
         options["projection"] = fig_kwargs["projection"]
         options["projection_kwargs"] = fig_kwargs.get("projection_kwargs", {})
+        options["lam_index"] = lam_index
+        options["model_type"] = model_type
+        options["box"] = box
 
         logger.info(f"Plotting {varname} with options")
         for key, val in options.items():
-            logger.info(f"\t{key}: {val}")
+            if key == "box" and box is not None:
+                logger.info(f"\t{key}: {val.keys()}")
+
+            else:
+                logger.info(f"\t{key}: {val}")
 
         if "level" in ds.dims:
             for level in ds["level"].values:

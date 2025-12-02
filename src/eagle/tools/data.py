@@ -571,9 +571,10 @@ def reshape_cell_dim(xds: xr.Dataset, model_type: str, lcc_info: dict = None) ->
 
     elif "lam" in model_type:
         assert isinstance(lcc_info, dict), "Need lcc_info={'n_x': ..., 'n_y': ...} for LAM model type"
-        xds = reshape_cell_to_xy(xds, **lcc_info)
-        #except:
-        #    logger.warning("reshape_cell_to_2d: could not reshape cell -> (y, x), skipping...")
+        try:
+            xds = reshape_cell_to_xy(xds, **lcc_info)
+        except:
+            logger.warning("reshape_cell_to_2d: could not reshape cell -> (y, x), skipping...")
     return xds
 
 def reshape_cell_to_latlon(xds: xr.Dataset) -> xr.Dataset:

@@ -89,40 +89,40 @@ def open_anemoi_dataset(
     member: int | None = None,
     lcc_info: dict | None = None,
     **kwargs: Any,
-) -> Any:
+) -> xr.Dataset:
     """
-    Wrapper for anemoi.datasets.open_dataset that applies immediate subsampling and processing.
+    Wrapper for ``anemoi.datasets.open_dataset`` that applies immediate subsampling and processing.
 
-    Note:
-        This will bring the resulting dataset into memory, so use the subsampling keyword arguments to trim down the dataset. Overall this does the same thing as open_anemoi_dataset_with_xarray, except the latter does not have all of the anemoi.datasets functionality, for instance it cannot open a nested dataset.
+    This function opens a dataset and immediately processes it based on the provided
+    subsampling arguments. It provides similar functionality to ``open_anemoi_dataset_with_xarray``
+    but retains specific ``anemoi.datasets`` features, such as the ability to open nested datasets.
 
-    Parameters
-    ----------
-    *args, **kwargs :
-        Passed directly to anemoi.datasets.open_dataset().
-    model_type: str
-        "global", "nested-lam", or "nested-global" for now
-    t0 : str
-        Starting date to select
-    tf : str
-        End date to select
-    levels : Sequence[float | int], optional
-        Select specific vertical levels.
-    vars_of_interest : Sequence[str], optional
-        Select specific variables/parameters.
-    rename_to_longnames : bool, default False
-        Renames variables to their descriptive long names.
-    reshape_cell_to_2d : bool, default False
-        Reshapes unstructured grid cells to 2D lat/lon.
-    member : int, optional
-        Selects a specific ensemble member.
-    lcc_info : dict, optional
-        which contains n_x and n_y, the length of the x/y dimensions after any trimming is done
+    .. warning::
+        This function loads the resulting dataset into memory. You must use the subsampling
+        keyword arguments (e.g., ``t0``, ``tf``, ``levels``) to trim the dataset size
+        before loading to avoid OutOfMemory errors.
 
+    Args:
+        *args: Passed directly to ``anemoi.datasets.open_dataset()``.
+        model_type (str): The specific model configuration. Options include: ``"global"``, ``"lam"``, ``"nested-lam"``, or ``"nested-global"``.
+        t0 (str): The starting date/timestamp for selection (inclusive).
+        tf (str): The ending date/timestamp for selection (inclusive).
+        levels (Sequence[float | int], optional): Specific vertical levels to select
+            from the dataset.
+        vars_of_interest (Sequence[str], optional): A list of specific variable or
+            parameter names to keep.
+        rename_to_longnames (bool, optional): If True, renames variables to their
+            descriptive long names. Defaults to False.
+        reshape_cell_to_2d (bool, optional): If True, reshapes unstructured grid cells
+            into a 2D latitude/longitude grid. Defaults to False.
+        member (int, optional): The specific ensemble member ID to select.
+        lcc_info (dict, optional): Dictionary containing Lambert Conformal Conic (LCC)
+            projection details. Must contain keys ``n_x`` and ``n_y`` representing the
+            x/y dimensions expected after trimming.
+        **kwargs: Passed directly to ``anemoi.datasets.open_dataset()``.
 
-    Returns
-    -------
-    dataset : The processed dataset object.
+    Returns:
+        xds (xr.Dataset): with subsampled data
     """
 
     ads = anemoi.datasets.open_dataset(*args, **kwargs)

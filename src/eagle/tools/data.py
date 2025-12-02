@@ -270,6 +270,9 @@ def open_anemoi_inference_dataset(
             Must contain entries ``{"n_x": length of LAM dataset in x direction, "n_y": length of LAM dataset in y direction}``.
             Note these lengths are after any trimming.
         member (int, optional): Specific ensemble member to select.
+        horizontal_regrid_kwargs (dict, optional): only used if ``model_type = "nested-global"``
+            in order to regrid to common global resolution.
+            Options are passed directly to ``ufs2arco.transforms.horizontal_regrid.horizontal_regrid()``
 
     Returns:
         xr.Dataset: The inference dataset.

@@ -11,6 +11,7 @@ from ufs2arco.mpi import MPITopology, SerialTopology
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset, reshape_cell_to_latlon
+from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 

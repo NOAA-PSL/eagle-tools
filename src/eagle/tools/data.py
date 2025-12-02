@@ -15,7 +15,7 @@ from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_datas
 logger = logging.getLogger("eagle.tools")
 
 
-def get_xy(xds, n_x, n_y):
+def _get_xy(xds, n_x, n_y):
     """Here n_x, n_y are the untrimmed lengths"""
     x = np.arange(n_x)
     y = np.arange(n_y)
@@ -38,7 +38,9 @@ def get_xy(xds, n_x, n_y):
 
 
 def trim_xarray_edge(xds, lcc_info, trim_edge):
-    """lcc_info has n_x and n_y, which are the post-trimmed legnths"""
+    """Trim the boundary of a LAM dataset using xarray
+    lcc_info has n_x and n_y, which are the post-trimmed legnths
+    """
 
     if not {"x", "y"}.issubset(xds.dims):
         xds = get_xy(

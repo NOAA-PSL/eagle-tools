@@ -37,10 +37,16 @@ def get_gridcell_area_weights(xds, model_type, reshape_cell_to_2d=False, regrid_
 def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12, reshape_cell_to_2d=False):
     """This is a nice code block copied from anemoi-graphs"""
 
+    cds = xds.coords.to_dataset().copy()
+    if "cell" not in cds["latitude"].dims:
+        # we need lat/lon to be flattened for the operations in this routine
+        cds = cds.stack(cell2d=("latitude", "longitude"))
+        cds["cell"] = xr.DataArray(np.arange(len(cds["cell2d"])), coords=cds["cell2d"].coords)
+        cds = cds.swap_dims({"cell2d": "cell"}).drop_vars("cell2d")
 
-    x = radius * np.cos(np.deg2rad(xds["latitude"])) * np.cos(np.deg2rad(xds["longitude"]))
-    y = radius * np.cos(np.deg2rad(xds["latitude"])) * np.sin(np.deg2rad(xds["longitude"]))
-    z = radius * np.sin(np.deg2rad(xds["latitude"]))
+    x = radius * np.cos(np.deg2rad(cds["latitude"])) * np.cos(np.deg2rad(cds["longitude"]))
+    y = radius * np.cos(np.deg2rad(cds["latitude"])) * np.sin(np.deg2rad(cds["longitude"]))
+    z = radius * np.sin(np.deg2rad(cds["latitude"]))
     sv = SphericalVoronoi(
         points=np.stack([x,y,z], -1),
         radius=radius,
@@ -51,7 +57,7 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
     if unit_mean:
         area_weight /= area_weight.mean()
 
-    area_weight = xr.DataArray(area_weight, coords=xds.cell.coords)
+    area_weight = xr.DataArray(area_weight, coords=cds.cell.coords)
     if reshape_cell_to_2d:
         try:
             ads = reshape_cell_to_latlon(area_weight.to_dataset(name="weights"))

@@ -12,6 +12,7 @@ import anemoi.datasets
 from ufs2arco.utils import expand_anemoi_dataset, convert_anemoi_inference_dataset
 
 from eagle.tools.nested import regrid_nested_to_latlon
+from eagle.tools.reshape import flatten_to_cell
 from eagle.tools.reshape import reshape_cell_dim
 
 logger = logging.getLogger("eagle.tools")
@@ -304,6 +305,9 @@ def open_anemoi_inference_dataset(
                 horizontal_regrid_kwargs=horizontal_regrid_kwargs,
             )
 
+            if not reshape_cell_to_2d:
+                xds = flatten_to_cell(xds)
+
     if load:
         xds = xds.load()
 
@@ -362,21 +366,8 @@ def open_forecast_zarr_dataset(
 
     # Comparing to anemoi, it's sometimes easier to flatten than unpack anemoi
     if not reshape_cell_to_2d:
-        if {"x", "y"}.issubset(xds.dims):
-            xds = xds.stack(cell2d=("y", "x"))
-        elif {"longitude", "latitude"}.issubset(xds.dims):
-            xds = xds.stack(cell2d=("latitude", "longitude"))
-        else:
-            raise KeyError("Unclear on the dimensions here")
+        xds = flatten_to_cell(xds)
 
-        xds["cell"] = xr.DataArray(
-            np.arange(len(xds.cell2d)),
-            coords=xds.cell2d.coords,
-        )
-        xds = xds.swap_dims({"cell2d": "cell"})
-        for key in ["x", "y", "cell2d"]:
-            if key in xds:
-                xds = xds.drop_vars(key)
     xds = xds.drop_vars(["t0", "valid_time"])
 
     if load:

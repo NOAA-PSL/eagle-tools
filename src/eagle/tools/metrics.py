@@ -11,7 +11,9 @@ from ufs2arco.mpi import MPITopology, SerialTopology
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset
+from eagle.tools.reshape import flatten_to_cell
 from eagle.tools.reshape import reshape_cell_to_latlon
+from eagle.tools.reshape import reshape_cell_dim
 from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
@@ -39,10 +41,7 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
 
     cds = xds.coords.to_dataset().copy()
     if "cell" not in cds["latitude"].dims:
-        # we need lat/lon to be flattened for the operations in this routine
-        cds = cds.stack(cell2d=("latitude", "longitude"))
-        cds["cell"] = xr.DataArray(np.arange(len(cds["cell2d"])), coords=cds["cell2d"].coords)
-        cds = cds.swap_dims({"cell2d": "cell"}).drop_vars("cell2d")
+        cds = flatten_to_cell(cds)
 
     x = radius * np.cos(np.deg2rad(cds["latitude"])) * np.cos(np.deg2rad(cds["longitude"]))
     y = radius * np.cos(np.deg2rad(cds["latitude"])) * np.sin(np.deg2rad(cds["longitude"]))
@@ -135,15 +134,16 @@ def main(config):
     }
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
-    do_any_regridding = target_regrid_kwargs or forecast_regrid_kwargs
+    do_any_regridding = (target_regrid_kwargs is not None) or \
+            ((forecast_regrid_kwargs is not None) and (model_type != "nested-global"))
     mkw = {}
     if do_any_regridding:
         mkw["spatial_dims"] = ("latitude", "longitude")
 
     if model_type == "nested-global":
-        config["horizontal_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+        forecast_regrid_kwargs["target_grid_path"] = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
-            horizontal_regrid_kwargs=config["horizontal_regrid_kwargs"],
+            horizontal_regrid_kwargs=forecast_regrid_kwargs,
         )
 
     # Verification dataset
@@ -194,7 +194,7 @@ def main(config):
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
                 reshape_cell_to_2d=do_any_regridding,
-                horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
+                horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
                 **subsample_kwargs,
             )
         else:
@@ -208,15 +208,13 @@ def main(config):
                 **subsample_kwargs,
             )
 
-        if forecast_regrid_kwargs is not None:
+        if forecast_regrid_kwargs is not None and model_type != "nested-global":
             fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
         tds = vds.sel(time=fds.time.values).load()
         if do_any_regridding:
-            try:
-                tds = reshape_cell_to_latlon(tds)
-            except:
-                logger.warning(f"Could not reshape target data to latlon")
+            tds = reshape_cell_dim(tds, model_type, subsample_kwargs["lcc_info"])
+
         if target_regrid_kwargs is not None:
             tds = horizontal_regrid(tds, **target_regrid_kwargs)
 

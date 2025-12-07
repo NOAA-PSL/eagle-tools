@@ -5,6 +5,28 @@ import xarray as xr
 
 logger = logging.getLogger("eagle.tools")
 
+def flatten_to_cell(xds: xr.Dataset):
+
+    if {"x", "y"}.issubset(xds.dims):
+        xds = xds.stack(cell2d=("y", "x"))
+
+    elif {"longitude", "latitude"}.issubset(xds.dims):
+        xds = xds.stack(cell2d=("latitude", "longitude"))
+
+    else:
+        raise KeyError("Unclear on the dimensions here")
+
+    xds["cell"] = xr.DataArray(
+        np.arange(len(xds["cell2d"])),
+        coords=xds["cell2d"].coords,
+    )
+    xds = xds.swap_dims({"cell2d": "cell"})
+    for key in ["x", "y", "cell2d"]:
+        if key in xds:
+            xds = xds.drop_vars(key)
+    return xds
+
+
 def reshape_cell_dim(xds: xr.Dataset, model_type: str, lcc_info: dict = None) -> xr.Dataset:
     """
     Reshapes the 'cell' dimension into standard 2D spatial dimensions.

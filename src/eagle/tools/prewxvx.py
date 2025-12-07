@@ -34,9 +34,9 @@ def main(config):
     }
 
     if model_type == "nested-global":
-        config["horizontal_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+        config["forecast_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
-            horizontal_regrid_kwargs=config["horizontal_regrid_kwargs"],
+            horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
         )
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
@@ -53,7 +53,7 @@ def main(config):
                 path=path_in,
                 model_type=model_type,
                 lam_index=config.get("lam_index", None),
-                horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
+                horizontal_regrid_kwargs=config.get("forecast_regrid_kwargs", None),
                 **open_kwargs,
             )
         else:

@@ -86,9 +86,9 @@ def main(config):
     }
 
     if model_type == "nested-global":
-        config["horizontal_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+        config["forecast_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
-            horizontal_regrid_kwargs=config["horizontal_regrid_kwargs"],
+            horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
         )
 
     # Verification dataset
@@ -116,7 +116,7 @@ def main(config):
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
-                horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
+                horizontal_regrid_kwargs=config.get("forecast_regrid_kwargs", None),
                 **subsample_kwargs,
             )
         else:

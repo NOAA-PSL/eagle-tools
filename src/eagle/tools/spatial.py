@@ -76,12 +76,13 @@ def main(config):
     }
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
-    do_any_regridding = target_regrid_kwargs or forecast_regrid_kwargs
+    do_any_regridding = (target_regrid_kwargs is not None) or \
+            ((forecast_regrid_kwargs is not None) and (model_type != "nested-global"))
 
     if model_type == "nested-global":
-        config["horizontal_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+        forecast_regrid_kwargs["target_grid_path"] = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
-            horizontal_regrid_kwargs=config["horizontal_regrid_kwargs"],
+            horizontal_regrid_kwargs=forecast_regrid_kwargs,
         )
 
     # Verification dataset
@@ -121,7 +122,7 @@ def main(config):
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
                 reshape_cell_to_2d=True,
-                horizontal_regrid_kwargs=config.get("horizontal_regrid_kwargs", None),
+                horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
                 **subsample_kwargs,
             )
         else:
@@ -135,7 +136,7 @@ def main(config):
                 **subsample_kwargs,
             )
 
-        if forecast_regrid_kwargs is not None:
+        if forecast_regrid_kwargs is not None and model_type != "nested-global":
             fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
         tds = vds.sel(time=fds.time.values).load()

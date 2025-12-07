@@ -88,6 +88,8 @@ def regrid_nested_to_latlon(
     lds = xds.isel(cell=slice(lam_index))
     lds = reshape_cell_to_xy(lds, **lcc_info)
     cds = xds.isel(cell=slice(lam_index, None))
+    lat_is_ascending = cds["latitude"][0] < cds["latitude"][-1]
+
 
     # Regrid to global resolution, stack lat/lon, drop non LAM part
     lam_on_global = horizontal_regrid(lds, **horizontal_regrid_kwargs)
@@ -108,4 +110,5 @@ def regrid_nested_to_latlon(
     sort_index = np.lexsort( (result["longitude"], result["latitude"]) )
     result = result.isel(cell=sort_index)
     result = reshape_cell_to_latlon(result)
+    result = result.sortby("latitude", ascending=lat_is_ascending)
     return result

@@ -118,10 +118,12 @@ def main(config):
     if use_mpi:
         topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
         logger.setLevel(logging.INFO)
-        logger.addHandler(topo.file_handler)
+        logger.addHandler(topo.log_handler)
 
     else:
-        topo = SerialTopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
+        topo = SerialTopology()
+        logger.setLevel(logging.INFO)
+        logger.addHandler(topo.log_handler)
 
 
     # options used for verification and inference datasets

@@ -10,7 +10,11 @@ from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 from ufs2arco.mpi import MPITopology, SerialTopology
 
 from eagle.tools.log import setup_simple_log
-from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset, reshape_cell_to_latlon
+from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset
+from eagle.tools.reshape import flatten_to_cell
+from eagle.tools.reshape import reshape_cell_to_latlon
+from eagle.tools.reshape import reshape_cell_dim
+from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 
@@ -35,10 +39,13 @@ def get_gridcell_area_weights(xds, model_type, reshape_cell_to_2d=False, regrid_
 def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), threshold=1e-12, reshape_cell_to_2d=False):
     """This is a nice code block copied from anemoi-graphs"""
 
+    cds = xds.coords.to_dataset().copy()
+    if "cell" not in cds["latitude"].dims:
+        cds = flatten_to_cell(cds)
 
-    x = radius * np.cos(np.deg2rad(xds["latitude"])) * np.cos(np.deg2rad(xds["longitude"]))
-    y = radius * np.cos(np.deg2rad(xds["latitude"])) * np.sin(np.deg2rad(xds["longitude"]))
-    z = radius * np.sin(np.deg2rad(xds["latitude"]))
+    x = radius * np.cos(np.deg2rad(cds["latitude"])) * np.cos(np.deg2rad(cds["longitude"]))
+    y = radius * np.cos(np.deg2rad(cds["latitude"])) * np.sin(np.deg2rad(cds["longitude"]))
+    z = radius * np.sin(np.deg2rad(cds["latitude"]))
     sv = SphericalVoronoi(
         points=np.stack([x,y,z], -1),
         radius=radius,
@@ -49,7 +56,7 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
     if unit_mean:
         area_weight /= area_weight.mean()
 
-    area_weight = xr.DataArray(area_weight, coords=xds.cell.coords)
+    area_weight = xr.DataArray(area_weight, coords=cds.cell.coords)
     if reshape_cell_to_2d:
         try:
             ads = reshape_cell_to_latlon(area_weight.to_dataset(name="weights"))
@@ -123,17 +130,26 @@ def main(config):
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "lcc_info": config.get("lcc_info", None),
     }
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
-    do_any_regridding = target_regrid_kwargs or forecast_regrid_kwargs
+    do_any_regridding = (target_regrid_kwargs is not None) or \
+            ((forecast_regrid_kwargs is not None) and (model_type != "nested-global"))
     mkw = {}
     if do_any_regridding:
         mkw["spatial_dims"] = ("latitude", "longitude")
 
+    if model_type == "nested-global":
+        forecast_regrid_kwargs["target_grid_path"] = prepare_regrid_target_mask(
+            anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
+            horizontal_regrid_kwargs=forecast_regrid_kwargs,
+        )
+
     # Verification dataset
     vds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
+        model_type=model_type,
         trim_edge=config.get("trim_edge", None),
         **subsample_kwargs,
     )
@@ -178,6 +194,7 @@ def main(config):
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
                 reshape_cell_to_2d=do_any_regridding,
+                horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
                 **subsample_kwargs,
             )
         else:
@@ -191,15 +208,13 @@ def main(config):
                 **subsample_kwargs,
             )
 
-        if forecast_regrid_kwargs is not None:
+        if forecast_regrid_kwargs is not None and model_type != "nested-global":
             fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
         tds = vds.sel(time=fds.time.values).load()
         if do_any_regridding:
-            try:
-                tds = reshape_cell_to_latlon(tds)
-            except:
-                logger.warning(f"Could not reshape target data to latlon")
+            tds = reshape_cell_dim(tds, model_type, subsample_kwargs["lcc_info"])
+
         if target_regrid_kwargs is not None:
             tds = horizontal_regrid(tds, **target_regrid_kwargs)
 
@@ -214,8 +229,9 @@ def main(config):
     mae_container = topo.gather(mae_container)
 
     if topo.is_root:
-        rmse_container = [xds for sublist in rmse_container for xds in sublist]
-        mae_container = [xds for sublist in mae_container for xds in sublist]
+        if use_mpi:
+            rmse_container = [xds for sublist in rmse_container for xds in sublist]
+            mae_container = [xds for sublist in mae_container for xds in sublist]
 
         # Sort before passing to xarray, potentially faster
         rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])

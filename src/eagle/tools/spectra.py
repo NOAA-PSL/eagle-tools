@@ -10,6 +10,7 @@ from anemoi.training.diagnostics.plots import compute_spectra as compute_array_s
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset
 from eagle.tools.metrics import postprocess
+from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 
@@ -40,6 +41,8 @@ def compute_power_spectrum(xds, latlons, min_delta):
         varlist = []
         for time in xds.time.values:
             yp = xds[varname].sel(time=time).values.squeeze()
+            if len(yp.shape) > 1:
+                yp = yp.flatten()
             nan_flag = np.isnan(yp).any()
 
             method = "linear" if nan_flag else "cubic"
@@ -79,11 +82,19 @@ def main(config):
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
+        "lcc_info": config.get("lcc_info", None),
     }
+
+    if model_type == "nested-global":
+        config["forecast_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+            anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
+            horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
+        )
 
     # Verification dataset
     vds = open_anemoi_dataset_with_xarray(
         path=config["verification_dataset_path"],
+        model_type=model_type,
         trim_edge=config.get("trim_edge", None),
         **subsample_kwargs,
     )
@@ -105,6 +116,7 @@ def main(config):
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
                 load=True,
+                horizontal_regrid_kwargs=config.get("forecast_regrid_kwargs", None),
                 **subsample_kwargs,
             )
         else:

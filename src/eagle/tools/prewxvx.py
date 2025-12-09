@@ -15,14 +15,15 @@ from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 
-def main(config):
 
+def main(config):
     setup_simple_log()
 
     forecast_path = config["forecast_path"]
     output_path = config["output_path"]
     model_type = config["model_type"]
     from_anemoi = config.get("from_anemoi", True)
+    lead_time = config["lead_time"]
 
     open_kwargs = {
         "load": True,
@@ -34,9 +35,13 @@ def main(config):
     }
 
     if model_type == "nested-global":
-        config["forecast_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
-            anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
-            horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
+        config["forecast_regrid_kwargs"]["target_grid_path"] = (
+            prepare_regrid_target_mask(
+                anemoi_reference_dataset_kwargs=config[
+                    "anemoi_reference_dataset_kwargs"
+                ],
+                horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
+            )
         )
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
@@ -44,8 +49,8 @@ def main(config):
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
 
-        path_in = f"{forecast_path}/{st0}.240h.nc"
-        path_out= f"{output_path}/{model_type}.{st0}.240h.nc"
+        path_in = f"{forecast_path}/{st0}.{lead_time}h.nc"
+        path_out = f"{output_path}/{model_type}.{st0}.{lead_time}h.nc"
 
         logger.info(f"Opening {path_in}")
         if from_anemoi:

@@ -407,6 +407,21 @@ def postwxvx(config_file):
     config = open_yaml_config(config_file)
     main(config)
 
+@cli.command()
+@click.option('--offline_path', required=True, type=click.Path(exists=True), help='Path to the experiment mlflow logs')
+@click.option('--local_id', required=True, type=str, help='The generated 18 character experiment ID')
+@click.option('--remote_name', required=True, type=str, help='The experiment group to show up in on AML')
+def amlsync(offline_path, local_id, remote_name):
+    """
+    Sync offline MLflow logs to Azure Machine Learning (AML).
+    """
+
+    from eagle.tools.amlsync import main
+    main(
+        offline_path=offline_path,
+        local_id=local_id,
+        remote_name=remote_name,
+    )
 
 if __name__ == "__main__":
     cli()

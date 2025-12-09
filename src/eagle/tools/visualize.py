@@ -249,7 +249,7 @@ def main(config, mode):
 
     # Prediction dataset
     pds = open_anemoi_inference_dataset(
-        f"{config['forecast_path']}/{st0}.{config['lead_time']}.nc",
+        f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
         model_type=model_type,
         lam_index=lam_index,
         trim_edge=config.get("trim_forecast_edge", None),

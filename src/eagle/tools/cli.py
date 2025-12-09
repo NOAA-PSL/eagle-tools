@@ -116,8 +116,7 @@ metrics.help = """Compute grid cell area weighted RMSE and MAE.
         freq (str): The frequency string for generating the date range between
             start_date and end_date (e.g., "6h"), passed to pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the
             anemoi inference dataset format. Otherwise, assumes layout of dataset
@@ -200,8 +199,7 @@ spatial.help = """Compute spatial maps of RMSE and MAE
         freq (str): The frequency string for generating the date range between
             start_date and end_date (e.g., "6h"), passed to pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the
             anemoi inference dataset format. Otherwise, assumes layout of dataset
@@ -270,8 +268,7 @@ spectra.help = """Compute the Power Spectrum averaged over all initial condition
         freq (str): The frequency string for generating the date range between
             start_date and end_date (e.g., "6h"), passed to pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the
             anemoi inference dataset format. Otherwise, assumes layout of dataset
@@ -357,8 +354,7 @@ figures.help = """Create figures or movies visually comparing predictions to tar
         start_date (str): The first initial condition date to process, in any format
             interpretable by pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         lam_index (int, optional): For nested models (e.g., model_type="nested-lam"), this integer
             specifies the number of grid points belonging to the LAM domain.

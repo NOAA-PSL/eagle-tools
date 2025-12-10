@@ -24,6 +24,7 @@ def postprocess(xds, keep_t0=None):
         xds["t0"] = xr.DataArray(t0, coords={"t0": t0})
         xds = xds.set_coords("t0")
     xds["lead_time"] = xds["time"] - xds["time"][0]
+    xds["lead_time"].attrs = {} # remove any calendar details from the attributes
     xds["fhr"] = xr.DataArray(
         xds["lead_time"].values.astype("timedelta64[h]").astype(int),
         coords=xds.time.coords,

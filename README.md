@@ -64,15 +64,15 @@ conda create -n eagle -c conda-forge python=3.12 xesmf esmf=*=nompi* jupyter sea
 conda activate eagle
 MPICC="cc -shared" pip install --force --no-cache-dir --no-binary=mpi4py mpi4py
 pip install git+https://github.com/timothyas/xmovie.git@feature/gif-scale
-pip install -e $HOME/anemoi-utils
-pip install -e $HOME/anemoi-transform
-pip install -e $HOME/anemoi-datasets
-pip install -e $HOME/anemoi-core/graphs
-pip install -e $HOME/anemoi-core/models
-pip install -e $HOME/anemoi-core/training[azure]
-pip install -e $HOME/anemoi-core/inference
-pip install -e $HOME/ufs2arco
-pip install -e $HOME/eagle-tools
+pip install -e $repo_path/anemoi-utils
+pip install -e $repo_path/anemoi-transform
+pip install -e $repo_path/anemoi-datasets
+pip install -e $repo_path/anemoi-core/graphs
+pip install -e $repo_path/anemoi-core/models
+pip install -e $repo_path/anemoi-core/training[azure]
+pip install -e $repo_path/anemoi-core/inference
+pip install -e $repo_path/ufs2arco
+pip install -e $repo_path/eagle-tools
 pip install "torch<2.7" torchvision
 pip install --no-cache-dir --no-build-isolation flash-attn==2.7.4.post1
 ```

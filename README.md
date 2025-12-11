@@ -115,7 +115,7 @@ eagle-tools spatial config.yaml
 
 ### Power Spectra
 
-Compute the power spectra, averaged of initial conditions.
+Compute the power spectrum, averaged of initial conditions.
 
 ```
 eagle-tools spectra config.yaml

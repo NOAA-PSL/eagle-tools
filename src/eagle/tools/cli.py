@@ -228,7 +228,7 @@ spatial.help = """Compute spatial maps of RMSE and MAE
 @click.argument('config_file', type=click.Path(exists=True))
 def spectra(config_file):
     """
-    Compute spectra error metrics.
+    Compute power spectra.
     """
     from eagle.tools.spectra import main
     config = open_yaml_config(config_file)

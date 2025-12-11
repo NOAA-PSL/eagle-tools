@@ -176,7 +176,7 @@ def main(config):
 
     # We can't have fewer ranks than initial conditions
     if pspectra is None:
-        raise ValueError(f"Cannot use fewer ranks than initial conditions, which is {n_dates}")
+        raise ValueError(f"Cannot use more MPI ranks than initial conditions, which is {n_dates}")
 
     logger.info(f" --- Summing Results on Root Process --- ")
     result = {}
@@ -187,7 +187,6 @@ def main(config):
         topo.sum(local_vals, global_vals)
         result[key] = xr.DataArray(global_vals, coords=pspectra[key].coords)
         logger.info(f" ... aggregated {key}")
-
 
     logger.info(f" --- Storing Results --- ")
     if topo.is_root:

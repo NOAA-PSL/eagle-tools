@@ -174,7 +174,7 @@ def main(config):
 
         logger.info(f"Done with {st0}")
 
-    # We can't have fewer ranks than initial conditions
+    # We can't have more ranks than initial conditions
     if pspectra is None:
         raise ValueError(f"Cannot use more MPI ranks than initial conditions, which is {n_dates}")
 

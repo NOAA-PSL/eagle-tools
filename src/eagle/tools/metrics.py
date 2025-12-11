@@ -174,7 +174,7 @@ def main(config):
 
     logger.info(f" --- Computing Error Metrics --- ")
     logger.info(f"Initial Conditions:\n{dates}")
-    for batch_idx in range(n_dates):
+    for batch_idx in range(n_batches):
 
         date_idx = (batch_idx * topo.size) + topo.rank
         if date_idx + 1 > n_dates:

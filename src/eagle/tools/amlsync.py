@@ -2,6 +2,7 @@ import os
 import logging
 import tempfile
 import json
+import time
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -9,6 +10,8 @@ from mlflow.entities import Metric
 
 from azure.ai.ml import MLClient
 from azure.identity import DefaultAzureCredential
+
+from eagle.tools.log import setup_simple_log
 
 logger = logging.getLogger("eagle.tools")
 
@@ -77,7 +80,7 @@ def log_metrics_in_batches(local_client, remote_client, local_run_id, remote_run
         remote_run_id (str): The ID of the remote run to write to.
         local_metrics_dict (dict): The dictionary of metrics from the local run.
     """
-    METRIC_BATCH_SIZE = 1000
+    METRIC_BATCH_SIZE = 100
     all_metrics_to_log = []
 
     logger.info("  Gathering all metric history points...")
@@ -96,6 +99,7 @@ def log_metrics_in_batches(local_client, remote_client, local_run_id, remote_run
     for i in range(0, len(all_metrics_to_log), METRIC_BATCH_SIZE):
         batch = all_metrics_to_log[i : i + METRIC_BATCH_SIZE]
         remote_client.log_batch(run_id=remote_run_id, metrics=batch)
+        time.sleep(0.5)
         logger.info(f"    -> Logged a batch of {len(batch)} metric points.")
 
 
@@ -105,8 +109,8 @@ def main(offline_path, local_id, remote_name):
         AZURE_SUBSCRIPTION_ID, AZUREML_ARM_RESOURCEGROUP, AZUREML_ARM_WORKSPACE_NAME
     """
 
+    setup_simple_log()
     offline_tracking_uri = f"file://{offline_path}"
-    remote_name = "anemoi-debug-offline"
 
     # --- Script ---
     logger.info("Initializing clients...")
@@ -156,7 +160,7 @@ def main(offline_path, local_id, remote_name):
             # --- Log Artifacts to the Main Run ---
             logger.info("Logging other artifacts...")
             local_artifact_path = os.path.join(
-                offline_tracking_uri.replace("file://", ""),
+                offline_path,
                 local_id,
                 local_run_id,
                 "artifacts"

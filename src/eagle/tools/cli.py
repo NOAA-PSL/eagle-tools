@@ -414,6 +414,13 @@ def postwxvx(config_file):
 def amlsync(offline_path, local_id, remote_name):
     """
     Sync offline MLflow logs to Azure Machine Learning (AML).
+
+    Note:
+        Users must have the following credentials defined as environment variables:
+        * AZURE_TENANT_ID
+        * AZURE_SUBSCRIPTION_ID
+        * AZURE_CLIENT_ID
+        * AZURE_CLIENT_SECRET
     """
 
     from eagle.tools.amlsync import main

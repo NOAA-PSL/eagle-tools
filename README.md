@@ -34,6 +34,7 @@ pip install anemoi-datasets anemoi-graphs anemoi-models anemoi-training[azure] a
 pip install eagle-tools
 pip install "torch<2.7" torchvision
 pip install --no-cache-dir --no-build-isolation flash-attn==2.7.4.post1
+pip install "mlflow-skinny<3.0"
 ```
 
 Note that it is no longer necessary to `module load gcc` since `gcc-native` is a
@@ -75,6 +76,7 @@ pip install -e $repo_path/ufs2arco
 pip install -e $repo_path/eagle-tools
 pip install "torch<2.7" torchvision
 pip install --no-cache-dir --no-build-isolation flash-attn==2.7.4.post1
+pip install "mlflow-skinny<3.0"
 ```
 
 

@@ -107,6 +107,7 @@ def main(config):
     model_type = config["model_type"]
     lam_index = config.get("lam_index", None)
     min_delta = config.get("min_delta_lat", 0.0003)
+    fhr_select = config.get("fhr_select", None)
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
@@ -161,6 +162,16 @@ def main(config):
                 load=True,
                 **subsample_kwargs,
             )
+
+        if fhr_select is not None:
+            if not isinstance(fhr_select, (list, tuple)):
+                fhr_select = [fhr_select]
+
+            time_select = [
+                fds["time"].values[0] + pd.Timedelta(hours=fhr)
+                for fhr in fhr_select
+            ]
+            fds = fds.sel(time=time_select)
 
         if grid is None:
             grid = get_regular_grid(fds, min_delta=min_delta)

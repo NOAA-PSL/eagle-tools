@@ -202,7 +202,7 @@ def main(config):
     logger.info(f" --- Storing Results --- ")
     if topo.is_root:
 
-        fname = f"{config['output_path']}/spectra.predictions.{config['model_type']}.nc"
+        fname = f"{config['output_path']}/spectra.{config['model_type']}.nc"
         result = xr.Dataset(result, attrs=pspectra.attrs.copy())
         for key in result.data_vars:
             result[key].attrs = pspectra[key].attrs.copy()

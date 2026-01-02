@@ -101,8 +101,8 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     model_type = kwargs.pop("model_type", "")
     lam_index = kwargs.pop("lam_index", None)
     box = kwargs.pop("box", None)
-    lam_size = kwargs.pop("lam_size")
-    global_size = kwargs.pop("global_size")
+    lam_size = kwargs.pop("lam_size", None)
+    global_size = kwargs.pop("global_size", None)
 
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
@@ -292,7 +292,6 @@ def main(config, mode):
     }
 
     # for nested, create the little box around the LAM region
-    box = None
     if model_type == "nested":
         assert lam_index is not None
         assert subsample_kwargs["lcc_info"] is not None
@@ -337,11 +336,12 @@ def main(config, mode):
         options["st0"] = st0
         options["projection"] = fig_kwargs["projection"]
         options["projection_kwargs"] = fig_kwargs.get("projection_kwargs", {})
-        options["lam_index"] = lam_index
         options["model_type"] = model_type
-        options["box"] = box
-        options["lam_size"] = fig_kwargs["lam_size"]
-        options["global_size"] = fig_kwargs["global_size"]
+        if model_type == "nested":
+            options["lam_index"] = lam_index
+            options["box"] = box
+            options["lam_size"] = fig_kwargs["lam_size"]
+            options["global_size"] = fig_kwargs["global_size"]
 
         logger.info(f"Plotting {varname} with options")
         for key, val in options.items():

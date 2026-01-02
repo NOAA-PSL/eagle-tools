@@ -34,6 +34,8 @@ fig_kwargs:
   width: 10
   height: 4.5
   projection: Robinson
+  lam_size: 0.25
+  global_size: 12
 
   # Orthographic Projection example
   # height: 7

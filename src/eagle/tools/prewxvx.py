@@ -17,7 +17,10 @@ logger = logging.getLogger("eagle.tools")
 
 
 def main(config):
-    setup_simple_log()
+
+    topo = config["topo"]
+    if config["use_mpi"]:
+        raise NotImplementedError
 
     forecast_path = config["forecast_path"]
     output_path = config["output_path"]

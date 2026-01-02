@@ -209,8 +209,9 @@ def main(config, mode):
 
     See ``eagle-tools visualize --help`` or cli.py for help
     """
-
-    setup_simple_log()
+    topo = config["topo"]
+    if config["use_mpi"]:
+        raise NotImplementedError
 
     # options used for verification and inference datasets
     model_type = config.get("model_type")

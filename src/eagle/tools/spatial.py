@@ -64,7 +64,9 @@ def main(config):
 
     See ``eagle-tools spatial --help`` or cli.py for help
     """
-    setup_simple_log()
+    topo = config["topo"]
+    if config["use_mpi"]:
+        raise NotImplementedError
 
     # options used for verification and inference datasets
     model_type = config["model_type"]

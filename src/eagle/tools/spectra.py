@@ -7,8 +7,6 @@ from scipy.interpolate import griddata
 
 from anemoi.training.diagnostics.plots import compute_spectra as compute_array_spectra, equirectangular_projection
 
-from ufs2arco.mpi import MPITopology, SerialTopology
-
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset
 from eagle.tools.metrics import postprocess
@@ -92,16 +90,7 @@ def main(config):
     See ``eagle-tools spectra --help`` or cli.py for help
     """
 
-    use_mpi = config.get("use_mpi", False)
-    if use_mpi:
-        topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/spectra"))
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
-
-    else:
-        topo = SerialTopology()
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
+    topo = config["topo"]
 
     # options used for verification and inference datasets
     model_type = config["model_type"]

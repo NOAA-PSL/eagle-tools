@@ -9,7 +9,6 @@ import pandas as pd
 import xesmf as xe
 from ufs2arco.utils import convert_anemoi_inference_dataset
 
-from eagle.tools.log import setup_simple_log
 from eagle.tools.utils import open_yaml_config
 
 logger = logging.getLogger("eagle.tools")
@@ -425,7 +424,6 @@ def run(
 
 
 def main(config):
-    setup_simple_log()
 
     dates = pd.date_range(start=config["start_date"], end=config["end_date"], freq=config["freq"])
 

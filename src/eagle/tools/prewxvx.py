@@ -9,7 +9,6 @@ import anemoi.datasets
 
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
-from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.nested import prepare_regrid_target_mask
 

@@ -14,7 +14,6 @@ import cmocean
 
 import xmovie
 
-from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset
 from eagle.tools.nested import get_nested_plot_box
 

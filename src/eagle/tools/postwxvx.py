@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from eagle.tools.log import setup_simple_log
-
 logger = logging.getLogger("eagle.tools")
 
 def parse_lead_time(lead_str: str) -> int | float:
@@ -127,7 +125,7 @@ def main(config):
         dslist2 = []
         for t0 in dates:
             st0 = t0.strftime("%Y-%m-%dT%H")
-            logger.info(f"Processing {st0}")
+            logger.debug(f"Processing {st0}")
 
             dslist = []
             for fhr in lead_times:

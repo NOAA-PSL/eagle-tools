@@ -121,8 +121,9 @@ def main(config):
     logger.info(f"Initial Conditions:\n{dates}")
     logger.info(f"Variables:\n{variable_prefixes}")
     for varname in variable_prefixes:
-        logger.info(f"Processing {varname}")
+        logger.info(f"\nProcessing {varname}")
         dslist2 = []
+        num_failures = 0
         for t0 in dates:
             st0 = t0.strftime("%Y-%m-%dT%H")
             logger.debug(f"Processing {st0}")
@@ -142,7 +143,10 @@ def main(config):
                     mdict = met_txtfile_to_dict(filename)
                     xds = met_dict_to_dataset(mdict)
                 except:
-                    logger.warning(f"Failure for {varname} at (t0, fhr) = ({st0}, {fhr})")
+                    num_failures += 1
+                    svtime = vtime.strftime("%Y-%m-%dT%H")
+                    msg = f"Failure for {varname} at (t0, fhr) = ({st0}, {fhr}), valid time = {svtime}"
+                    logger.warning(msg)
                     xds = xr.Dataset({"fhr": xr.DataArray([fhr], coords={"fhr": [fhr]})})
                 dslist.append(xds)
 
@@ -152,3 +156,8 @@ def main(config):
         result = xr.concat(dslist2, dim="t0")
         nicename = rename.get(varname, varname)
         result.to_netcdf(f"{work_path}/{nicename}.nc")
+
+        if num_failures > 0:
+            msg = f" ... {varname} had {num_failures} failures out of {len(lead_times)*len(dates)} timestamps"
+            logger.info(msg)
+    logger.info(f"\nDone with postwxvx workflow")

@@ -40,13 +40,16 @@ def init_topo(config: dict, command: str) -> MPITopology | SerialTopology:
     use_mpi = are_we_using_mpi(config)
     if use_mpi:
         topo = MPITopology(log_dir=config.get("log_path", f"eagle-logs/{command}"))
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
 
     else:
         topo = SerialTopology()
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
+
+    logger.setLevel(logging.INFO)
+    logger.addHandler(topo.log_handler)
+
+    ufs2arco_logger = logging.getLogger("ufs2arco")
+    ufs2arco_logger.setLevel(logging.INFO)
+    ufs2arco_logger.addHandler(topo.log_handler)
 
     return topo, use_mpi
 

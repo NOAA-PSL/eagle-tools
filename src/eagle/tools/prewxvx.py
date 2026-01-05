@@ -27,7 +27,7 @@ def main(config):
 
     open_kwargs = {
         "load": True,
-        "reshape_cell_to_2d": config.get("reshape_cell_to_2d", False),
+        "reshape_cell_to_2d": True,
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
         "member": config.get("member", None),

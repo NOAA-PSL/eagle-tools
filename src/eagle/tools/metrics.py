@@ -7,7 +7,6 @@ import pandas as pd
 
 import ufs2arco.utils
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
-from ufs2arco.mpi import MPITopology, SerialTopology
 
 from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset
@@ -115,17 +114,7 @@ def main(config):
     See ``eagle-tools metrics --help`` or cli.py for help
     """
 
-    use_mpi = config.get("use_mpi", False)
-    if use_mpi:
-        topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
-
-    else:
-        topo = SerialTopology()
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
-
+    topo = config["topo"]
 
     # options used for verification and inference datasets
     model_type = config["model_type"]
@@ -232,7 +221,7 @@ def main(config):
     mae_container = topo.gather(mae_container)
 
     if topo.is_root:
-        if use_mpi:
+        if config["use_mpi"]:
             rmse_container = [xds for sublist in rmse_container for xds in sublist]
             mae_container = [xds for sublist in mae_container for xds in sublist]
 

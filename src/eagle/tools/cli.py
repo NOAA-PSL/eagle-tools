@@ -1,7 +1,7 @@
 import click
 import yaml
 
-from eagle.tools.utils import open_yaml_config
+from eagle.tools.utils import setup
 
 @click.group()
 def cli():
@@ -16,7 +16,7 @@ def inference(config_file):
     Run inference.
     """
     from eagle.tools.inference import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 inference.help = """Runs Anemoi inference pipeline over many initialization dates.
@@ -67,7 +67,7 @@ def postprocess(config_file):
     Run postprocessing.
     """
     from eagle.tools.postprocess import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 
@@ -78,7 +78,7 @@ def metrics(config_file):
     Compute error metrics.
     """
     from eagle.tools.metrics import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 metrics.help = """Compute grid cell area weighted RMSE and MAE.
@@ -156,7 +156,7 @@ def spatial(config_file):
     Compute spatial error metrics.
     """
     from eagle.tools.spatial import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 spatial.help = """Compute spatial maps of RMSE and MAE
@@ -231,7 +231,7 @@ def spectra(config_file):
     Compute power spectra.
     """
     from eagle.tools.spectra import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 spectra.help = """Compute the Power Spectrum averaged over all initial conditions
@@ -299,7 +299,7 @@ def figures(config_file):
     Visualize the fields as figures
     """
     from eagle.tools.visualize import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config, mode="figure")
 
 figures.help = """Create figures or movies visually comparing predictions to targets
@@ -380,7 +380,7 @@ def movies(config_file):
     Visualize the fields as figures
     """
     from eagle.tools.visualize import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config, mode="movie")
 
 movies.help = figures.help
@@ -393,7 +393,7 @@ def prewxvx(config_file):
     Postprocess forecast files for wxvx
     """
     from eagle.tools.prewxvx import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 
@@ -404,7 +404,7 @@ def postwxvx(config_file):
     Gather wxvx stats
     """
     from eagle.tools.postwxvx import main
-    config = open_yaml_config(config_file)
+    config = setup(config_file)
     main(config)
 
 @cli.command()

@@ -68,11 +68,11 @@ def plot_nested_box(ax, box):
         ax.plot(box["longitude"][idx, box["x"]], box["latitude"][idx, box["x"]], **kw)
 
 
-def nested_scatter(ax, xds, varname, lam_index, box, **kwargs):
+def nested_scatter(ax, xds, varname, lam_index, box, lam_size=0.25, global_size=12, **kwargs):
     mappables = []
     for slc, s in zip(
         [slice(None, lam_index), slice(lam_index, None)],
-        [1/4, 12],
+        [lam_size, global_size],
     ):
         p = ax.scatter(
             xds["longitude"].isel(cell=slc),
@@ -101,6 +101,8 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     model_type = kwargs.pop("model_type", "")
     lam_index = kwargs.pop("lam_index", None)
     box = kwargs.pop("box", None)
+    lam_size = kwargs.pop("lam_size", None)
+    global_size = kwargs.pop("global_size", None)
 
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
@@ -114,7 +116,7 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
         ax = fig.add_subplot(1, 2, ii+1, **subplot_kw)
 
         if model_type == "nested":
-            p = nested_scatter(ax, xds.isel(time=time), label, lam_index, box, **kwargs)
+            p = nested_scatter(ax, xds.isel(time=time), label, lam_index, box, lam_size=lam_size, global_size=global_size, **kwargs)
 
         else:
             p = ax.pcolormesh(
@@ -178,7 +180,7 @@ def create_media(
     else:
         path = fname + ".gif"
         mov = xmovie.Movie(
-            ds,
+            xds,
             plot_single_timestamp,
             framedim="time",
             input_check=False,
@@ -207,8 +209,9 @@ def main(config, mode):
 
     See ``eagle-tools visualize --help`` or cli.py for help
     """
-
-    setup_simple_log()
+    topo = config["topo"]
+    if config["use_mpi"]:
+        raise NotImplementedError
 
     # options used for verification and inference datasets
     model_type = config.get("model_type")
@@ -290,7 +293,6 @@ def main(config, mode):
     }
 
     # for nested, create the little box around the LAM region
-    box = None
     if model_type == "nested":
         assert lam_index is not None
         assert subsample_kwargs["lcc_info"] is not None
@@ -335,9 +337,12 @@ def main(config, mode):
         options["st0"] = st0
         options["projection"] = fig_kwargs["projection"]
         options["projection_kwargs"] = fig_kwargs.get("projection_kwargs", {})
-        options["lam_index"] = lam_index
         options["model_type"] = model_type
-        options["box"] = box
+        if model_type == "nested":
+            options["lam_index"] = lam_index
+            options["box"] = box
+            options["lam_size"] = fig_kwargs["lam_size"]
+            options["global_size"] = fig_kwargs["global_size"]
 
         logger.info(f"Plotting {varname} with options")
         for key, val in options.items():

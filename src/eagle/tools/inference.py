@@ -5,8 +5,6 @@ import pandas as pd
 from anemoi.inference.config.run import RunConfiguration
 from anemoi.inference.runners import create_runner
 
-from eagle.tools.log import setup_simple_log
-
 logger = logging.getLogger("eagle.tools")
 
 
@@ -89,8 +87,6 @@ def main(config):
 
     See ``eagle-tools inference --help`` or cli.py for help
     """
-
-    setup_simple_log()
 
     dates = pd.date_range(start=config["start_date"], end=config["end_date"], freq=config["freq"])
 

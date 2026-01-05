@@ -317,7 +317,7 @@ def open_anemoi_inference_dataset(
     if rename_to_longnames:
         xds = rename(xds)
 
-    if reshape_cell_to_2d:
+    if reshape_cell_to_2d and model_type != "nested-global":
         xds = reshape_cell_dim(xds, model_type, lcc_info)
 
     return xds

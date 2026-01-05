@@ -30,6 +30,7 @@ rename:
   v_10m_heightAboveGround_0010: 10m_meridional_wind
   gh_isobaricInhPa_0500: 500hpa_geopotential_height
   t_isobaricInhPa_0850: 850hpa_temperature
+  q_isobaricInhPa_0850: 850hpa_specific_humidity
   u_isobaricInhPa_0250: 250hpa_zonal_wind
   v_isobaricInhPa_0250: 250hpa_zonal_wind
   sp_surface: surface_pressure

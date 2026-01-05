@@ -213,9 +213,9 @@ def main(config):
         mae_container.append(mae(target=tds, prediction=fds, weights=latlon_weights, **mkw))
 
         logger.info(f"Done with {st0}")
-    logger.info(f" --- Done Computing Metrics --- \n")
+    logger.info(f"Done Computing Metrics")
 
-    logger.info(f" --- Gathering Results on Root Process --- \n")
+    logger.info(f"\n --- Gathering Results on Root Process --- ")
     rmse_container = topo.gather(rmse_container)
     mae_container = topo.gather(mae_container)
 
@@ -228,7 +228,7 @@ def main(config):
         rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])
         mae_container = sorted(mae_container, key=lambda xds: xds.coords["t0"])
 
-        logger.info(f" --- Combining & Storing Results --- ")
+        logger.info(f"\n --- Combining & Storing Results --- ")
         rmse_container = xr.concat(rmse_container, dim="t0")
         mae_container = xr.concat(mae_container, dim="t0")
 
@@ -237,4 +237,4 @@ def main(config):
             xda.to_netcdf(fname)
             logger.info(f"Stored result: {fname}")
 
-        logger.info(f" --- Done Storing Error Metrics --- \n")
+        logger.info(f"\n --- Done Storing Error Metrics --- ")

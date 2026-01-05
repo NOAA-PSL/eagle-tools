@@ -196,4 +196,4 @@ def main(config):
             result[key].attrs = pspectra[key].attrs.copy()
         result.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f" --- Done ---")
+    logger.info(f"\n --- Done Computing Spectra ---")

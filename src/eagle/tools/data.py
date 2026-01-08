@@ -42,7 +42,12 @@ def _get_xy(xds: xr.Dataset, n_x: int, n_y: int) -> xr.Dataset:
         xds["y"] = xr.DataArray(y, coords={"y": y})
     return xds
 
-def trim_xarray_edge(xds: xr.Dataset, lcc_info: dict, trim_edge: Sequence[int]) -> xr.Dataset:
+def trim_xarray_edge(
+    xds: xr.Dataset,
+    lcc_info: dict,
+    trim_edge: Sequence[int],
+    stack_order: Sequence[str] | None = None,
+) -> xr.Dataset:
     """
     Trim the boundary of a Limited Area Model (LAM) dataset using xarray.
 
@@ -53,20 +58,28 @@ def trim_xarray_edge(xds: xr.Dataset, lcc_info: dict, trim_edge: Sequence[int]) 
             representing the **post-trimmed** lengths.
         trim_edge (Sequence[int]): A sequence (e.g., [left, right, bottom, top]) defining
             how many grid points to trim from the edges.
+        stack_order (Sequenc[str], optional): This would be e.g. ["latitude", "longitude"] or ["y", x"] depending on the original dimension order of your dataset
 
     Returns:
         xr.Dataset: The trimmed dataset with updated coordinates.
     """
+    if stack_order is None:
+        logger.warning(f"eagle.tools.data.trim_xarray_edge: stack_order not provided for trimming, I'm assuming ['y', 'x'] not ['x', 'y']")
+        stack_order  = ["y", "x"]
+
+    idx = stack_order.index("x")*2
+    idy = stack_order.index("y")*2
     if not {"x", "y"}.issubset(xds.dims):
         # Note: assuming _get_xy is meant here (was get_xy in original snippet)
+        xtrim = trim_edge[0]
         xds = _get_xy(
             xds=xds,
-            n_x=lcc_info["n_x"] + trim_edge[0] + trim_edge[1],
-            n_y=lcc_info["n_y"] + trim_edge[2] + trim_edge[3],
+            n_x=lcc_info["n_x"] + trim_edge[idx] + trim_edge[idx+1] ,
+            n_y=lcc_info["n_y"] + trim_edge[idy] + trim_edge[idy+1],
         )
 
-    condx = ( (xds["x"] > trim_edge[0]-1) & (xds["x"] < xds["x"].max().values-trim_edge[1]+1) ).compute()
-    condy = ( (xds["y"] > trim_edge[2]-1) & (xds["y"] < xds["y"].max().values-trim_edge[3]+1) ).compute()
+    condx = ( (xds["x"] > trim_edge[idx]-1) & (xds["x"] < xds["x"].max().values-trim_edge[idx+1]+1) ).compute()
+    condy = ( (xds["y"] > trim_edge[idy]-1) & (xds["y"] < xds["y"].max().values-trim_edge[idy+1]+1) ).compute()
     xds = xds.where(condx & condy, drop=True)
 
     # reset either the cell or x & t coordinate values to be 0->len(coord)
@@ -219,12 +232,13 @@ def open_anemoi_dataset_with_xarray(
     """
 
     ads = xr.open_zarr(path)
+    stack_order = ads.attrs.get("stack_order", None)
     xds = expand_anemoi_dataset(ads, "data", ads.attrs["variables"])
 
     xds = xds.rename({"ensemble": "member"})
     xds = subsample(xds, levels, vars_of_interest, member=member)
     if trim_edge is not None and "lam" in model_type:
-        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge, stack_order)
 
     if rename_to_longnames:
         xds = rename(xds)
@@ -247,6 +261,7 @@ def open_anemoi_inference_dataset(
     lcc_info: dict | None = None,
     member: int | None = None,
     horizontal_regrid_kwargs: dict | None = None,
+    stack_order: Sequence[str] | None = None,
 ) -> xr.Dataset:
     """
     Opens an inference dataset from Anemoi.
@@ -275,6 +290,7 @@ def open_anemoi_inference_dataset(
         horizontal_regrid_kwargs (dict, optional): only used if ``model_type = "nested-global"``
             in order to regrid to common global resolution.
             Options are passed directly to ``ufs2arco.transforms.horizontal_regrid.horizontal_regrid()``
+        stack_order (Sequenc[str], optional): Only used if trimming further. This would be e.g. ["latitude", "longitude"] or ["y", x"] depending on the original dimension order of your dataset
 
     Returns:
         xr.Dataset: The inference dataset.
@@ -312,7 +328,7 @@ def open_anemoi_inference_dataset(
         xds = xds.load()
 
     if trim_edge is not None and "lam" in model_type:
-        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge, stack_order)
 
     if rename_to_longnames:
         xds = rename(xds)
@@ -356,6 +372,7 @@ def open_forecast_zarr_dataset(
     """
 
     xds = xr.open_zarr(path, decode_timedelta=True)
+    stack_order = list(x for x in xds.dims if x not in ["t0", "fhr", "level", "member"])
     xds = xds.sel(t0=t0).squeeze(drop=True)
     xds["time"] = xr.DataArray(
         [pd.Timestamp(t0) + pd.Timedelta(hours=fhr) for fhr in xds.fhr.values],
@@ -374,7 +391,7 @@ def open_forecast_zarr_dataset(
         xds = xds.load()
 
     if trim_edge is not None:
-        xds = trim_xarray_edge(xds, lcc_info, trim_edge)
+        xds = trim_xarray_edge(xds, lcc_info, trim_edge, stack_order)
 
     if rename_to_longnames:
         xds = rename(xds)

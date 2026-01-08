@@ -174,7 +174,7 @@ def create_media(
             **options,
         )
         fig.savefig(path, dpi=dpi, bbox_inches="tight")
-        logger.info(f"Stored figure at: {path}\n")
+        logger.info(f"Stored figure at: {path}")
 
     else:
         path = fname + ".gif"
@@ -199,7 +199,7 @@ def create_media(
             gif_palette=True,
             gif_scale=["trunc(iw/2)", "trunc(ih/2)"],
         )
-        logger.info(f"Stored movie at: {path}\n")
+        logger.info(f"Stored movie at: {path}")
     return
 
 
@@ -230,7 +230,7 @@ def main(config, mode):
     tf = pd.Timestamp(config["end_date"])
     st0 = t0.strftime("%Y-%m-%dT%H")
     stf = tf.strftime("%Y-%m-%dT%H")
-    logger.info(f"Time Bounds:\n\tt0 = {st0}\n\ttf = {stf}\n")
+    logger.info(f"Time Bounds:\n\tt0 = {st0}\n\ttf = {stf}")
 
     # Target dataset
     tds = open_anemoi_dataset(
@@ -247,7 +247,7 @@ def main(config, mode):
         tds = tds.sel(time=[tf])
     else:
         tds = tds.sel(time=slice(t0, tf))
-    logger.info(f"Opened Target dataset:\n{tds}\n")
+    logger.info(f"Opened Target dataset:\n{tds}")
 
     # Prediction dataset
     pds = open_anemoi_inference_dataset(
@@ -263,7 +263,7 @@ def main(config, mode):
         pds = pds.sel(time=[tf])
     else:
         pds = pds.sel(time=slice(t0, tf))
-    logger.info(f"Opened Prediction dataset:\n{pds}\n")
+    logger.info(f"Opened Prediction dataset:\n{pds}")
 
     # setup plot options with user overrides
     defaults_path = importlib.resources.files("eagle.tools.config") / "defaults.yaml"

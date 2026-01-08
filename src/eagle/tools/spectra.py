@@ -8,6 +8,7 @@ from scipy.interpolate import griddata
 from anemoi.training.diagnostics.plots import compute_spectra as compute_array_spectra, equirectangular_projection
 
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset
+from eagle.tools.data import open_forecast_zarr_dataset
 from eagle.tools.metrics import postprocess
 from eagle.tools.nested import prepare_regrid_target_mask
 

@@ -115,7 +115,7 @@ def main(config):
 
     pspectra = None
     grid = None
-    logger.info(f" --- Computing Spectra --- ")
+    logger.info(f"Computing Spectra")
     logger.info(f"Initial Conditions:\n{dates}")
     for batch_idx in range(n_batches):
 
@@ -178,7 +178,7 @@ def main(config):
     if pspectra is None:
         raise ValueError(f"Cannot use more MPI ranks than initial conditions, which is {n_dates}")
 
-    logger.info(f" --- Summing Results on Root Process --- ")
+    logger.info(f"Summing Results on Root Process")
     result = {}
     for key in fds.data_vars:
 
@@ -188,7 +188,7 @@ def main(config):
         result[key] = xr.DataArray(global_vals, coords=pspectra[key].coords)
         logger.info(f" ... aggregated {key}")
 
-    logger.info(f" --- Storing Results --- ")
+    logger.info(f"Storing Results")
     if topo.is_root:
 
         fname = f"{config['output_path']}/spectra.{config['model_type']}.nc"
@@ -197,4 +197,4 @@ def main(config):
             result[key].attrs = pspectra[key].attrs.copy()
         result.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f"\n --- Done Computing Spectra ---")
+    logger.info(f"Done Computing Spectra")

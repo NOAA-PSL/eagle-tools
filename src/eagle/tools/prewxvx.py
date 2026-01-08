@@ -92,4 +92,4 @@ def main(config):
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
         xds.to_netcdf(path_out)
         logger.info(f"Wrote to {path_out}")
-    logger.info(f"\nDone with prewxvx workflow")
+    logger.info(f"Done with prewxvx workflow")

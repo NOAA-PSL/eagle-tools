@@ -90,7 +90,7 @@ def main(config):
 
     dates = pd.date_range(start=config["start_date"], end=config["end_date"], freq=config["freq"])
 
-    logger.info(f" --- Running Inference --- ")
+    logger.info(f"Running Inference")
     logger.info(f"Initial Conditions:\n{dates}")
     for d in dates:
         logger.info(f"Processing {d}")
@@ -99,4 +99,4 @@ def main(config):
             main_config=config,
         )
         logger.info(f"Done with {d}")
-    logger.info(f"\n --- Done Running Inference --- ")
+    logger.info(f"Done Running Inference")

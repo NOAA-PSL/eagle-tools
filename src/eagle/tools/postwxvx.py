@@ -117,11 +117,11 @@ def main(config):
     with metmetapath.open("r") as f:
         rename = yaml.safe_load(f)["rename"]
 
-    logger.info(f" --- Gathering metrics from wxvx stats --- ")
+    logger.info(f"Gathering metrics from wxvx stats")
     logger.info(f"Initial Conditions:\n{dates}")
     logger.info(f"Variables:\n{variable_prefixes}")
     for varname in variable_prefixes:
-        logger.info(f"\nProcessing {varname}")
+        logger.info(f"Processing {varname}")
         dslist2 = []
         num_failures = 0
         for t0 in dates:
@@ -160,4 +160,4 @@ def main(config):
         if num_failures > 0:
             msg = f" ... {varname} had {num_failures} failures out of {len(lead_times)*len(dates)} timestamps"
             logger.info(msg)
-    logger.info(f"\nDone with postwxvx workflow")
+    logger.info(f"Done with postwxvx workflow")

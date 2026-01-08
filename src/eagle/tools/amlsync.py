@@ -112,7 +112,6 @@ def main(offline_path, local_id, remote_name):
     setup_simple_log()
     offline_tracking_uri = f"file://{offline_path}"
 
-    # --- Script ---
     logger.info("Initializing clients...")
     local_client = MlflowClient(tracking_uri=offline_tracking_uri)
 
@@ -141,7 +140,7 @@ def main(offline_path, local_id, remote_name):
 
     for run_info in runs_to_sync:
         local_run_id = run_info.info.run_id
-        logger.info(f"\n--- Syncing local run: {local_run_id} ---")
+        logger.info(f"Syncing local run: {local_run_id}")
 
         # Start the main parent run in Azure ML
         with mlflow.start_run(experiment_id=remote_experiment_id) as remote_run:
@@ -150,14 +149,14 @@ def main(offline_path, local_id, remote_name):
 
             local_run = local_client.get_run(local_run_id)
 
-            # --- Log All Parameters as Separate JSON Artifacts ---
+            # Log All Parameters as Separate JSON Artifacts
             log_params_by_category_as_artifacts(local_run.data.params)
 
-            # --- Log Metrics to the Main Run in Batches ---
+            # Log Metrics to the Main Run in Batches
             logger.info("Logging metrics...")
             log_metrics_in_batches(local_client, remote_client, local_run_id, remote_run_id, local_run.data.metrics)
 
-            # --- Log Artifacts to the Main Run ---
+            # Log Artifacts to the Main Run
             logger.info("Logging other artifacts...")
             local_artifact_path = os.path.join(
                 offline_path,
@@ -172,5 +171,5 @@ def main(offline_path, local_id, remote_name):
             else:
                 logger.info("  No other artifacts found to log.")
 
-    logger.info("\n--- Synchronization complete! ---")
+    logger.info("Synchronization complete!")
 

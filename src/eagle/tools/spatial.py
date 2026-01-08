@@ -109,7 +109,7 @@ def main(config):
     rmse_container = list() if keep_t0 else None
     mae_container = list() if keep_t0 else None
 
-    logger.info(f" --- Computing Spatial Error Metrics --- ")
+    logger.info(f"Computing Spatial Error Metrics")
     logger.info(f"Initial Conditions:\n{dates}")
     for t0 in dates:
 
@@ -163,7 +163,7 @@ def main(config):
         logger.info(f"Done with {st0}")
     logger.info(f"Done Computing Metrics")
 
-    logger.info(f"\n --- Combining & Storing Results --- ")
+    logger.info(f"Combining & Storing Results")
     for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
         if keep_t0:
             fname = f"{config['output_path']}/spatial.{varname}.perIC.{config['model_type']}.nc"
@@ -172,4 +172,4 @@ def main(config):
             fname = f"{config['output_path']}/spatial.{varname}.{config['model_type']}.nc"
         xda.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f"\n --- Done Storing Spatial Error Metrics --- ")
+    logger.info(f"Done Storing Spatial Error Metrics")

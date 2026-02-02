@@ -97,6 +97,7 @@ def main(config):
     lam_index = config.get("lam_index", None)
     min_delta = config.get("min_delta_lat", 0.0003)
     fhr_select = config.get("fhr_select", None)
+    member = config.get("member", None)
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
@@ -133,8 +134,11 @@ def main(config):
         logger.info(f"Processing {st0}")
         if config.get("from_anemoi", True):
 
+            fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+            if member is not None:
+                fname = fname.replace(".nc", f".member{member:03d}.nc")
             fds = open_anemoi_inference_dataset(
-                f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
+                fname,
                 model_type=model_type,
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),

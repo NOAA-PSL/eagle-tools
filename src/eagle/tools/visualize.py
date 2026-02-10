@@ -215,11 +215,11 @@ def main(config, mode):
     # options used for verification and inference datasets
     model_type = config.get("model_type")
     lam_index = config.get("lam_index", None)
+    member = config.get("member", None)
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
         "lcc_info": config.get("lcc_info", None),
-        "member": config.get("member", None),
     }
     output_dir = config["output_path"]
     if not os.path.isdir(output_dir):
@@ -250,8 +250,11 @@ def main(config, mode):
     logger.info(f"Opened Target dataset:\n{tds}")
 
     # Prediction dataset
+    fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+    if member is not None:
+        fname = fname.replace(".nc", f".member{member:03d}.nc")
     pds = open_anemoi_inference_dataset(
-        f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
+        fname,
         model_type=model_type,
         lam_index=lam_index,
         trim_edge=config.get("trim_forecast_edge", None),
@@ -354,6 +357,8 @@ def main(config, mode):
         if "level" in ds.dims:
             for level in ds["level"].values:
                 fname = f"{output_dir}/{varname}.level{level}.{st0}.{stf}"
+                if member is not None:
+                    fname += f".member{member:03d}"
                 create_media(
                     xds=ds.sel(level=level),
                     mode=mode,
@@ -366,6 +371,8 @@ def main(config, mode):
 
         else:
             fname = f"{output_dir}/{varname}.{st0}.{stf}"
+            if member is not None:
+                fname += f".member{member:03d}"
             create_media(
                 xds=ds,
                 mode=mode,

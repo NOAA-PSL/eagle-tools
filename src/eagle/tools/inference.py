@@ -12,6 +12,7 @@ logger = logging.getLogger("eagle.tools")
 def create_anemoi_config(
     init_date: pd.Timestamp,
     main_config: dict,
+    member: int | None = None,
 ) -> dict:
     """
     Create the config that will be passed to anemoi-inference.
@@ -42,19 +43,25 @@ def create_anemoi_config(
         "input": {"dataset": main_config["input_dataset_kwargs"]},
         "runner": main_config.get("runner", "default"),
     }
+
+    fname = f"{main_config['output_path']}/{date_str}.{lead_time}h.nc"
+    if member is not None:
+        fname = fname.replace(".nc", f".member{member:03d}.nc")
+
     if main_config.get("extract_lam", False):
+        fname = fname.replace(".nc", "lam.nc")
         config["output"] = {
             "extract_lam": {
                 "output": {
                     "netcdf": {
-                        "path": f"{main_config['output_path']}/{date_str}.{lead_time}h.lam.nc",
+                        "path": fname,
                     },
                 },
             },
         }
     else:
         config["output"] = {
-            "netcdf": f"{main_config['output_path']}/{date_str}.{lead_time}h.nc",
+            "netcdf": fname,
         }
 
     return config
@@ -84,6 +91,7 @@ def run_forecast(
     init_date: pd.Timestamp,
     main_config: dict,
     preloaded_model=None,
+    member: int | None = None,
 ) -> None:
     """
     Inference pipeline.
@@ -99,6 +107,7 @@ def run_forecast(
     anemoi_config = create_anemoi_config(
         init_date=init_date,
         main_config=main_config,
+        member=member,
     )
     run_config = RunConfiguration.load(anemoi_config)
     runner = create_runner(run_config)
@@ -125,6 +134,8 @@ def main(config):
         )
 
     dates = pd.date_range(start=config["start_date"], end=config["end_date"], freq=config["freq"])
+    n_members = config.get("n_members", 1)
+
     n_dates = len(dates)
     n_batches = int(np.ceil(n_dates / topo.size))
 
@@ -141,12 +152,15 @@ def main(config):
             break
 
         d = dates[date_idx]
-        logger.info(f"Processing {d}")
-        run_forecast(
-            init_date=d,
-            main_config=config,
-            preloaded_model=model,
-        )
+        logger.info(f"Processing {d} for {n_members} members")
+        for member in range(n_members):
+            run_forecast(
+                init_date=d,
+                main_config=config,
+                preloaded_model=model,
+                member=member if n_members>1 else None,
+            )
+
         logger.info(f"Done with {d}")
 
     topo.barrier()

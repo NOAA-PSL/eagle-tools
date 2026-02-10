@@ -87,6 +87,45 @@ def _load_model_once(main_config: dict):
     return model
 
 
+def _seed_rank(topo, config):
+    """Set a deterministic, per-rank torch RNG seed for ensemble diversity.
+
+    Follows the anemoi convention: reads ANEMOI_BASE_SEED (or SLURM_JOB_ID)
+    from the environment, then offsets by rank so each MPI process generates
+    distinct noise in SimpleNoiseConditioning.
+
+    If no seed source is found, logs a warning and skips seeding (falls back
+    to PyTorch's default random seed, which is still per-process unique but
+    not reproducible).
+    """
+    import os
+
+    import torch
+
+    base_seed = None
+    for env_var in ("ANEMOI_BASE_SEED", "SLURM_JOB_ID"):
+        if env_var in os.environ:
+            base_seed = int(os.environ[env_var])
+            break
+
+    if config.get("base_seed") is not None:
+        base_seed = config["base_seed"]
+
+    if base_seed is None:
+        logger.warning(
+            "No base seed found (set ANEMOI_BASE_SEED, SLURM_JOB_ID, or config 'base_seed'). "
+            "Ensemble members will differ across ranks but results will not be reproducible."
+        )
+        return
+
+    if base_seed < 1000:
+        base_seed *= 1000
+
+    rank_seed = base_seed * (topo.rank + 1)
+    torch.manual_seed(rank_seed)
+    logger.info(f"Seeded rank {topo.rank} with torch seed {rank_seed} (base_seed={base_seed})")
+
+
 def run_forecast(
     init_date: pd.Timestamp,
     main_config: dict,
@@ -145,6 +184,8 @@ def main(config):
     logger.info("Loading model")
     model = _load_model_once(config)
     logger.info("Model loaded")
+
+    _seed_rank(topo, config)
 
     for batch_idx in range(n_batches):
         date_idx = (batch_idx * topo.size) + topo.rank

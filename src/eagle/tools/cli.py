@@ -65,6 +65,9 @@ inference.help = """Runs Anemoi inference pipeline over many initialization date
         \b
         log_path (str, optional): When using MPI, the directory where per-rank log files
             are saved. Defaults to "eagle-logs/inference".
+
+        \b
+        base_seed (int, optional): base seed for running a stochastic model
     """
 
 

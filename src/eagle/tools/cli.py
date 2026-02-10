@@ -57,6 +57,14 @@ inference.help = """Runs Anemoi inference pipeline over many initialization date
         extract_lam (bool, optional): If True, extracts and saves only the LAM
             (Limited Area Model) domain from the output. Only used for Nested model configurations.
             Defaults to False.
+        \b
+        use_mpi (bool, optional): If True, distribute initialization dates across MPI ranks.
+            Each rank loads its own copy of the model onto its GPU. Launch with
+            ``srun --ntasks=N --gpus-per-task=1`` to bind one GPU per rank.
+            Cannot be combined with ``runner: parallel``. Defaults to False.
+        \b
+        log_path (str, optional): When using MPI, the directory where per-rank log files
+            are saved. Defaults to "eagle-logs/inference".
     """
 
 

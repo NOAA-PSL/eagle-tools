@@ -197,72 +197,15 @@ def main(config):
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
 
-        if is_ensemble:
-            # Load all ensemble members
-            member_fds_list = []
-            for member in range(n_members):
-                if config.get("from_anemoi", True):
-                    fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
-                    fname = fname.replace(".nc", f".member{member:03d}.nc")
-                    member_fds = open_anemoi_inference_dataset(
-                        fname,
-                        model_type=model_type,
-                        lam_index=lam_index,
-                        trim_edge=config.get("trim_forecast_edge", None),
-                        load=True,
-                        reshape_cell_to_2d=do_any_regridding,
-                        horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
-                        **subsample_kwargs,
-                    )
-                else:
-                    member_fds = open_forecast_zarr_dataset(
-                        config["forecast_path"],
-                        t0=t0,
-                        member=member,
-                        trim_edge=config.get("trim_forecast_edge", None),
-                        load=True,
-                        reshape_cell_to_2d=do_any_regridding,
-                        **subsample_kwargs,
-                    )
-
-                if forecast_regrid_kwargs is not None and model_type != "nested-global":
-                    member_fds = horizontal_regrid(member_fds, **forecast_regrid_kwargs)
-
-                member_fds_list.append(member_fds)
-
-            # Load target data once (using time coords from first member)
-            tds = vds.sel(time=member_fds_list[0].time.values).load()
-            if do_any_regridding:
-                tds = reshape_cell_dim(tds, model_type, subsample_kwargs["lcc_info"])
-            if target_regrid_kwargs is not None:
-                tds = horizontal_regrid(tds, **target_regrid_kwargs)
-
-            # Concatenate members along "member" dim
-            ensemble_fds = xr.concat(member_fds_list, dim="member")
-
-            # Compute spread
-            spread_container.append(spread(ensemble_fds, weights=latlon_weights))
-
-            # Compute ensemble mean metrics
-            ensmean = ensemble_fds.mean("member")
-            rmse_ensmean_container.append(rmse(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
-            mae_ensmean_container.append(mae(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
-
-            # Compute per-member deterministic metrics
-            member_rmse_list = []
-            member_mae_list = []
-            for member in range(n_members):
-                member_rmse_list.append(rmse(target=tds, prediction=member_fds_list[member], weights=latlon_weights, **mkw))
-                member_mae_list.append(mae(target=tds, prediction=member_fds_list[member], weights=latlon_weights, **mkw))
-
-            rmse_container.append(xr.concat(member_rmse_list, dim="member"))
-            mae_container.append(xr.concat(member_mae_list, dim="member"))
-
-        else:
+        # Load forecast member(s)
+        member_fds_list = []
+        for member in range(n_members):
             if config.get("from_anemoi", True):
-
+                fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+                if is_ensemble:
+                    fname = fname.replace(".nc", f".member{member:03d}.nc")
                 fds = open_anemoi_inference_dataset(
-                    f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
+                    fname,
                     model_type=model_type,
                     lam_index=lam_index,
                     trim_edge=config.get("trim_forecast_edge", None),
@@ -272,10 +215,10 @@ def main(config):
                     **subsample_kwargs,
                 )
             else:
-
                 fds = open_forecast_zarr_dataset(
                     config["forecast_path"],
                     t0=t0,
+                    member=member if is_ensemble else None,
                     trim_edge=config.get("trim_forecast_edge", None),
                     load=True,
                     reshape_cell_to_2d=do_any_regridding,
@@ -285,67 +228,65 @@ def main(config):
             if forecast_regrid_kwargs is not None and model_type != "nested-global":
                 fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
-            tds = vds.sel(time=fds.time.values).load()
-            if do_any_regridding:
-                tds = reshape_cell_dim(tds, model_type, subsample_kwargs["lcc_info"])
+            member_fds_list.append(fds)
 
-            if target_regrid_kwargs is not None:
-                tds = horizontal_regrid(tds, **target_regrid_kwargs)
+        # Load target data once (using time coords from first member)
+        tds = vds.sel(time=member_fds_list[0].time.values).load()
+        if do_any_regridding:
+            tds = reshape_cell_dim(tds, model_type, subsample_kwargs["lcc_info"])
+        if target_regrid_kwargs is not None:
+            tds = horizontal_regrid(tds, **target_regrid_kwargs)
 
-            rmse_container.append(rmse(target=tds, prediction=fds, weights=latlon_weights, **mkw))
-            mae_container.append(mae(target=tds, prediction=fds, weights=latlon_weights, **mkw))
+        # Compute per-member RMSE/MAE
+        member_rmse_list = []
+        member_mae_list = []
+        for member in range(n_members):
+            member_rmse_list.append(rmse(target=tds, prediction=member_fds_list[member], weights=latlon_weights, **mkw))
+            member_mae_list.append(mae(target=tds, prediction=member_fds_list[member], weights=latlon_weights, **mkw))
+
+        if is_ensemble:
+            rmse_container.append(xr.concat(member_rmse_list, dim="member"))
+            mae_container.append(xr.concat(member_mae_list, dim="member"))
+        else:
+            rmse_container.append(member_rmse_list[0])
+            mae_container.append(member_mae_list[0])
+
+        # Ensemble-only metrics
+        if is_ensemble:
+            ensemble_fds = xr.concat(member_fds_list, dim="member")
+            spread_container.append(spread(ensemble_fds, weights=latlon_weights))
+
+            ensmean = ensemble_fds.mean("member")
+            rmse_ensmean_container.append(rmse(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
+            mae_ensmean_container.append(mae(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
 
         logger.info(f"Done with {st0}")
     logger.info(f"Done Computing Metrics")
 
     logger.info(f"Gathering Results on Root Process")
-    rmse_container = topo.gather(rmse_container)
-    mae_container = topo.gather(mae_container)
-
+    containers = {"rmse": rmse_container, "mae": mae_container}
     if is_ensemble:
-        spread_container = topo.gather(spread_container)
-        rmse_ensmean_container = topo.gather(rmse_ensmean_container)
-        mae_ensmean_container = topo.gather(mae_ensmean_container)
+        containers.update({
+            "spread": spread_container,
+            "rmse_ensmean": rmse_ensmean_container,
+            "mae_ensmean": mae_ensmean_container,
+        })
+
+    for name in containers:
+        containers[name] = topo.gather(containers[name])
 
     if topo.is_root:
-        if config["use_mpi"]:
-            rmse_container = [xds for sublist in rmse_container for xds in sublist]
-            mae_container = [xds for sublist in mae_container for xds in sublist]
+        for name in containers:
+            c = containers[name]
+            if config["use_mpi"]:
+                c = [xds for sublist in c for xds in sublist]
+            c = sorted(c, key=lambda xds: xds.coords["t0"])
+            containers[name] = xr.concat(c, dim="t0")
 
-            if is_ensemble:
-                spread_container = [xds for sublist in spread_container for xds in sublist]
-                rmse_ensmean_container = [xds for sublist in rmse_ensmean_container for xds in sublist]
-                mae_ensmean_container = [xds for sublist in mae_ensmean_container for xds in sublist]
-
-        # Sort before passing to xarray, potentially faster
-        rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])
-        mae_container = sorted(mae_container, key=lambda xds: xds.coords["t0"])
-
-        if is_ensemble:
-            spread_container = sorted(spread_container, key=lambda xds: xds.coords["t0"])
-            rmse_ensmean_container = sorted(rmse_ensmean_container, key=lambda xds: xds.coords["t0"])
-            mae_ensmean_container = sorted(mae_ensmean_container, key=lambda xds: xds.coords["t0"])
-
-        logger.info(f"Combining & Storing Results")
-        rmse_container = xr.concat(rmse_container, dim="t0")
-        mae_container = xr.concat(mae_container, dim="t0")
-
-        if is_ensemble:
-            spread_container = xr.concat(spread_container, dim="t0")
-            rmse_ensmean_container = xr.concat(rmse_ensmean_container, dim="t0")
-            mae_ensmean_container = xr.concat(mae_ensmean_container, dim="t0")
-
-        metrics_to_save = [("rmse", rmse_container), ("mae", mae_container)]
-        if is_ensemble:
-            metrics_to_save.extend([
-                ("spread", spread_container),
-                ("rmse_ensmean", rmse_ensmean_container),
-                ("mae_ensmean", mae_ensmean_container),
-            ])
-
-        for varname, xda in metrics_to_save:
+        logger.info("Combining & Storing Results")
+        for varname, xda in containers.items():
             fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
             xda.to_netcdf(fname)
             logger.info(f"Stored result: {fname}")
 
-        logger.info(f"Done Storing Error Metrics")
+        logger.info("Done Storing Error Metrics")

@@ -616,7 +616,7 @@ def main(config):
             container[name] = xr.concat(c, dim="t0")
 
         for metric, xds in container.items():
-            fname = f"{config['output_path']}/obs.conv.{metric}.nc"
+            fname = f"{config['output_path']}/{metric}.convobs.{model_type}.nc"
             xds.to_netcdf(fname)
             logger.info(f"Stored result: {fname}")
         logger.info("Done Storing Observation Verification Metrics")

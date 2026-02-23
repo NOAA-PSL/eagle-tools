@@ -428,6 +428,39 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
     return xds
 
 
+def _parse_subregions(config):
+    """Parse subregion definitions from config.
+
+    Returns dict of {name: {"latitude": (min, max), "longitude": (min, max)}}.
+    Longitude bounds are converted from [-180, 180] to [0, 360] to match obs convention.
+    """
+    raw = config.get("subregions", {})
+    subregions = {}
+    for name, bounds in raw.items():
+        if "latitude" not in bounds and "longitude" not in bounds:
+            raise ValueError(f"Subregion '{name}' must have at least 'latitude' or 'longitude'")
+        lat = tuple(bounds["latitude"]) if "latitude" in bounds else (-90, 90)
+        lon = bounds.get("longitude", [-180, 180])
+        lon = (lon[0] % 360, lon[1] % 360)
+        subregions[name] = {"latitude": lat, "longitude": lon}
+    return subregions
+
+
+def _filter_obs_by_subregion(obs_df, bounds):
+    """Filter observations DataFrame to a geographic subregion.
+
+    Handles longitude wrapping around 0/360.
+    """
+    lat_min, lat_max = bounds["latitude"]
+    lon_min, lon_max = bounds["longitude"]
+    lat_mask = (obs_df["LAT"] >= lat_min) & (obs_df["LAT"] <= lat_max)
+    if lon_min <= lon_max:
+        lon_mask = (obs_df["LON"] >= lon_min) & (obs_df["LON"] <= lon_max)
+    else:
+        lon_mask = (obs_df["LON"] >= lon_min) | (obs_df["LON"] <= lon_max)
+    return obs_df.loc[lat_mask & lon_mask]
+
+
 def main(config):
     """Verify forecasts against observations.
 
@@ -451,6 +484,11 @@ def main(config):
     temporal_window = pd.Timedelta(config.get("temporal_window", "3h"))
     max_qc_value = config.get("max_qc_value", 2)
 
+    # Parse subregions
+    subregions = _parse_subregions(config)
+    if subregions:
+        logger.info(f"Subregions: {list(subregions.keys())}")
+
     # does the user want to evaluate on a different grid?
     # this doesn't include regridding the nested -> global resolution
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
@@ -472,6 +510,7 @@ def main(config):
     n_batches = int(np.ceil(n_dates / topo.size))
 
     container = {"rmse": [], "mae": [], "bias": [], "count": []}
+    subregion_containers = {name: {"rmse": [], "mae": [], "bias": [], "count": []} for name in subregions}
 
     logger.info(f"Observation Verification")
     logger.info(f"Datasets: {list(DATASET_REGISTRY.keys())}")
@@ -540,6 +579,10 @@ def main(config):
 
         # Compute metrics per forecast valid time
         container_per_ic = {metric: {varname: [] for varname in forecast_var_names} for metric in container.keys()}
+        subregion_container_per_ic = {
+            sr_name: {metric: {varname: [] for varname in forecast_var_names} for metric in container.keys()}
+            for sr_name in subregions
+        }
 
         for vtime in forecast_valid_times:
             vtimestamp = pd.Timestamp(vtime)
@@ -551,6 +594,8 @@ def main(config):
                         fillvalue = 0 if metric == "count" else np.nan
                         fillds = xr.DataArray(fillvalue, coords={"time": [vtime]}, dims=("time",))
                         container_per_ic[metric][varname].append(fillds)
+                        for sr_name in subregions:
+                            subregion_container_per_ic[sr_name][metric][varname].append(fillds)
                 continue
 
             matched_obs = aligned[vtimestamp]
@@ -569,6 +614,29 @@ def main(config):
                 )
                 for metric in container.keys():
                     container_per_ic[metric][varname].append(result[metric])
+
+            # Subregion metrics
+            for sr_name, sr_bounds in subregions.items():
+                sr_obs = _filter_obs_by_subregion(matched_obs, sr_bounds)
+                if len(sr_obs) == 0:
+                    for varname in forecast_var_names:
+                        for metric in container.keys():
+                            fillvalue = 0 if metric == "count" else np.nan
+                            fillds = xr.DataArray(fillvalue, coords={"time": [vtime]}, dims=("time",))
+                            subregion_container_per_ic[sr_name][metric][varname].append(fillds)
+                else:
+                    sr_interpolated = _interp_to_obs_locations(fds.sel(time=vtime), sr_obs)
+                    for varname, vinfo in variable_map.items():
+                        fvals = sr_interpolated[vinfo["base_name"]]
+                        if "level" in fvals.dims:
+                            fvals = fvals.sel(level=vinfo["level"])
+                        sr_result = compute_obs_metrics(
+                            fvals.values,
+                            sr_obs[vinfo["obs_col"]].values,
+                            vtime,
+                        )
+                        for metric in container.keys():
+                            subregion_container_per_ic[sr_name][metric][varname].append(sr_result[metric])
 
         # Assemble into xr.Dataset, grouping upper-air variables by base
         # name with a level dimension
@@ -599,6 +667,33 @@ def main(config):
             this_metric_ds = postprocess(xr.Dataset(data_vars))
             container[metric].append(this_metric_ds)
 
+        # Assemble subregion metrics
+        for sr_name, sr_cpi in subregion_container_per_ic.items():
+            for metric, thedata in sr_cpi.items():
+                base_groups = {}
+                for varname, vals in thedata.items():
+                    vinfo = variable_map[varname]
+                    bn = vinfo["base_name"]
+                    level = vinfo["level"]
+                    time_concat = xr.concat(vals, dim="time")
+                    if bn not in base_groups:
+                        base_groups[bn] = {}
+                    base_groups[bn][level] = time_concat
+
+                data_vars = {}
+                for bn, level_dict in base_groups.items():
+                    if None in level_dict:
+                        data_vars[bn] = level_dict[None]
+                    else:
+                        level_arrays = []
+                        for lvl in sorted(level_dict.keys()):
+                            arr = level_dict[lvl].expand_dims({"level": [lvl]})
+                            level_arrays.append(arr)
+                        data_vars[bn] = xr.concat(level_arrays, dim="level")
+
+                this_metric_ds = postprocess(xr.Dataset(data_vars))
+                subregion_containers[sr_name][metric].append(this_metric_ds)
+
         logger.info(f"Done with {st0}")
 
     logger.info("Done Computing Observation Verification Metrics")
@@ -606,6 +701,9 @@ def main(config):
     logger.info("Gathering Results on Root Process")
     for name in container.keys():
         container[name] = topo.gather(container[name])
+    for sr_name in subregions:
+        for name in subregion_containers[sr_name].keys():
+            subregion_containers[sr_name][name] = topo.gather(subregion_containers[sr_name][name])
 
     if topo.is_root:
         for name in container:
@@ -619,4 +717,18 @@ def main(config):
             fname = f"{config['output_path']}/{metric}.convobs.{model_type}.nc"
             xds.to_netcdf(fname)
             logger.info(f"Stored result: {fname}")
+
+        for sr_name, sr_container in subregion_containers.items():
+            for name in sr_container:
+                c = sr_container[name]
+                if config["use_mpi"]:
+                    c = [xds for sublist in c for xds in sublist]
+                c = sorted(c, key=lambda xds: xds.coords["t0"])
+                sr_container[name] = xr.concat(c, dim="t0")
+
+            for metric, xds in sr_container.items():
+                fname = f"{config['output_path']}/{metric}.convobs.{model_type}.{sr_name}.nc"
+                xds.to_netcdf(fname)
+                logger.info(f"Stored result: {fname}")
+
         logger.info("Done Storing Observation Verification Metrics")

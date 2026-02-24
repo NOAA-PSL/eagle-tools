@@ -552,10 +552,12 @@ def main(config):
             fds = open_forecast_zarr_dataset(
                 config["forecast_path"],
                 t0=t0,
+                trim_edge=config.get("trim_forecast_edge", None),
                 vars_of_interest=base_var_names,
                 levels=levels,
                 load=True,
                 lcc_info=config.get("lcc_info", None),
+                reshape_cell_to_2d=True,
             )
 
         # Get forecast valid times

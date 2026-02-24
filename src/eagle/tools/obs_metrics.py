@@ -20,35 +20,50 @@ UNIT_CONVERSIONS = {
     "gp_to_gph": lambda x: x / GRAVITY,
 }
 
+
+def _dewpoint_to_specific_humidity(td_kelvin, pressure_hpa):
+    """Convert dewpoint temperature to specific humidity.
+    Uses Magnus formula consistent with NOAA MET vx_physics/thermo.cc.
+    """
+    e = 6.112 * np.exp(17.67 * (td_kelvin - 273.15) / (td_kelvin - 29.65))
+    w = 0.622 * e / (pressure_hpa - e)
+    return w / (1 + w)
+
 DATASET_REGISTRY = {
     "conv-adpupa-NC002001": {
         "t": {"obs_var": "TMDB", "obs_qc_var": "QMAT"},
         "gh": {"obs_var": "GP10", "obs_qc_var": "QMGP", "unit_conversion": "gp_to_gph"},
         "u": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
         "v": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
+        "q": {"obs_var": "TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000001": {
         "t2m": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
         "sp": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
         "u10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
         "v10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
+        "sh2": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000002": {
         "t2m": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
         "sp": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
         "u10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
         "v10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
+        "sh2": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000007": {
         "t2m": {"obs_var": "MTRTMP.TMDB", "obs_qc_var": "MTRTMP.QMAT"},
+        "sp": {"obs_var": "MTRPRS.PRES", "obs_qc_var": "MTRPRS.QMPR"},
         "u10": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
         "v10": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
+        "sh2": {"obs_var": "MTRTMP.TMDP", "obs_qc_var": "MTRTMP.QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000101": {
         "t2m": {"obs_var": "TEMHUMDA.TMDB", "obs_qc_var": "QMAT"},
         "sp": {"obs_var": "PRESDATA.PRESSQ03.PRES", "obs_qc_var": "QMPR"},
         "u10": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
         "v10": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
+        "sh2": {"obs_var": "TEMHUMDA.TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
     },
 }
 
@@ -59,7 +74,7 @@ WIND_VARIABLES = {
     "v10": {"group": "uv10", "component": "v"},
 }
 
-DEFAULT_VARIABLES = ["t", "gh", "t2m", "sp", "u", "v", "u10", "v10"]
+DEFAULT_VARIABLES = ["t", "gh", "t2m", "sp", "u", "v", "u10", "v10", "q", "sh2"]
 DEFAULT_LEVELS = [500, 850]
 
 
@@ -99,11 +114,13 @@ def build_variable_map(config):
                 f"Available variables: {sorted(all_registry_vars)}"
             )
 
-        # Look up unit_conversion from the first registry entry that has this variable
+        # Look up unit_conversion and needs_dewpoint_conversion from the first registry entry
         conversion = None
+        needs_dewpoint = False
         for reg in DATASET_REGISTRY.values():
             if base_name in reg:
                 conversion = reg[base_name].get("unit_conversion", None)
+                needs_dewpoint = reg[base_name].get("needs_dewpoint_conversion", False)
                 break
 
         upper_air = _is_upper_air(base_name)
@@ -117,6 +134,7 @@ def build_variable_map(config):
                     "obs_col": f"obs_{base_name}_{level}",
                     "obs_qc_col": f"obs_qc_{base_name}_{level}",
                     "unit_conversion": conversion,
+                    "needs_dewpoint_conversion": needs_dewpoint,
                 }
                 if base_name in WIND_VARIABLES:
                     wind_info = WIND_VARIABLES[base_name]
@@ -134,6 +152,7 @@ def build_variable_map(config):
                 "obs_col": f"obs_{base_name}",
                 "obs_qc_col": f"obs_qc_{base_name}",
                 "unit_conversion": conversion,
+                "needs_dewpoint_conversion": needs_dewpoint,
             }
             if base_name in WIND_VARIABLES:
                 wind_info = WIND_VARIABLES[base_name]
@@ -340,6 +359,53 @@ def convert_obs_units(obs_df, variable_map):
             obs_col = vinfo["obs_col"]
             if obs_col in obs_df.columns:
                 obs_df[obs_col] = UNIT_CONVERSIONS[conversion](obs_df[obs_col])
+    return obs_df
+
+
+def convert_dewpoint_to_specific_humidity(obs_df, variable_map):
+    """Convert dewpoint temperature obs to specific humidity in-place.
+
+    For variables with ``needs_dewpoint_conversion``, the obs column contains
+    dewpoint temperature (K).  This function converts it to specific humidity
+    (kg/kg) using the Magnus formula (consistent with MET vx_physics/thermo.cc).
+
+    Pressure source:
+    - Upper-air (level is not None): pressure = level in hPa.
+    - Surface (level is None): pressure = observed surface pressure from the
+      ``obs_sp`` column (Pa, divided by 100 to get hPa).
+    """
+    has_dewpoint_var = any(
+        v.get("needs_dewpoint_conversion") for v in variable_map.values()
+    )
+    if not has_dewpoint_var:
+        return obs_df
+
+    # Validate that surface humidity vars have surface pressure available
+    for forecast_var, vinfo in variable_map.items():
+        if not vinfo.get("needs_dewpoint_conversion"):
+            continue
+        if vinfo["level"] is None and "obs_sp" not in obs_df.columns:
+            raise ValueError(
+                f"{vinfo['base_name']} requires 'sp' in variables list "
+                "to provide pressure for dewpoint conversion"
+            )
+
+    for forecast_var, vinfo in variable_map.items():
+        if not vinfo.get("needs_dewpoint_conversion"):
+            continue
+        obs_col = vinfo["obs_col"]
+        if obs_col not in obs_df.columns:
+            continue
+
+        td = obs_df[obs_col]
+        if vinfo["level"] is not None:
+            pressure_hpa = float(vinfo["level"])
+        else:
+            pressure_hpa = obs_df["obs_sp"] / 100.0
+
+        obs_df[obs_col] = _dewpoint_to_specific_humidity(td, pressure_hpa)
+        logger.info(f"Converted dewpoint to specific humidity for {obs_col}")
+
     return obs_df
 
 
@@ -571,6 +637,7 @@ def main(config):
         # QC filter and unit conversion
         obs_df = apply_qc_filter(obs_df, variable_map, max_qc_value=max_qc_value)
         obs_df = convert_obs_units(obs_df, variable_map)
+        obs_df = convert_dewpoint_to_specific_humidity(obs_df, variable_map)
         obs_df = derive_wind_components(obs_df, variable_map)
 
         # Convert obs longitudes to 0-360 to match forecast convention

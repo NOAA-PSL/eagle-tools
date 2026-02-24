@@ -119,6 +119,25 @@ def spread(ensemble, weights=1.):
     return postprocess(xds)
 
 
+def fcrps(target, ensemble, weights=1.):
+    """Area-weighted fair Continuous Ranked Probability Score.
+
+    fCRPS = (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
+    """
+    result = {}
+    n_members = ensemble.sizes["member"]
+    dims = tuple(d for d in ensemble.dims if d not in ("time", "level", "member"))
+    for key in ensemble.data_vars:
+        abs_err = np.abs(ensemble[key] - target[key]).mean("member")
+        pairwise = np.abs(
+            ensemble[key] - ensemble[key].rename({"member": "_member"})
+        ).mean(("member", "_member"))
+        fair_crps = weights * (abs_err - pairwise / (2 * (n_members - 1)))
+        result[key] = fair_crps.mean(dims).compute()
+    xds = xr.Dataset(result)
+    return postprocess(xds)
+
+
 def main(config):
     """Compute grid cell area weighted RMSE and MAE.
 
@@ -177,6 +196,7 @@ def main(config):
 
     if is_ensemble:
         spread_container = list()
+        fcrps_container = list()
         rmse_ensmean_container = list()
         mae_ensmean_container = list()
 
@@ -255,6 +275,7 @@ def main(config):
         if is_ensemble:
             ensemble_fds = xr.concat(member_fds_list, dim="member")
             spread_container.append(spread(ensemble_fds, weights=latlon_weights))
+            fcrps_container.append(fcrps(target=tds, ensemble=ensemble_fds, weights=latlon_weights))
 
             ensmean = ensemble_fds.mean("member")
             rmse_ensmean_container.append(rmse(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
@@ -268,6 +289,7 @@ def main(config):
     if is_ensemble:
         containers.update({
             "spread": spread_container,
+            "fcrps": fcrps_container,
             "rmse_ensmean": rmse_ensmean_container,
             "mae_ensmean": mae_ensmean_container,
         })

@@ -550,8 +550,19 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
     valid = np.isfinite(forecast_values).all(axis=0) & np.isfinite(obs_values)
     if valid.sum() == 0:
         spread_val = np.nan
+        fcrps_val = np.nan
     else:
         spread_val = float(np.mean(np.std(forecast_values[:, valid], axis=0, ddof=0)))
+
+        # Fair CRPS: (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
+        f_valid = forecast_values[:, valid]  # (n_members, n_valid)
+        o_valid = obs_values[valid]
+        abs_err = np.mean(np.abs(f_valid - o_valid), axis=0)  # mean over members per location
+        pairwise = np.mean(
+            np.abs(f_valid[:, None, :] - f_valid[None, :, :]),
+            axis=(0, 1),
+        )  # mean over (i, j) pairs per location
+        fcrps_val = float(np.mean(abs_err - pairwise / (2 * (n_members - 1))))
 
     scalar_vars = {
         "count": count_val,
@@ -560,6 +571,7 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
         "bias_ensmean": ensmean_result["bias"],
         "count_ensmean": ensmean_result["count"],
         "spread": spread_val,
+        "fcrps": fcrps_val,
     }
 
     xds = xr.Dataset({**per_member_vars, **{k: v for k, v in scalar_vars.items()}})
@@ -653,7 +665,7 @@ def main(config):
     container = {"rmse": [], "mae": [], "bias": [], "count": []}
     subregion_containers = {name: {"rmse": [], "mae": [], "bias": [], "count": []} for name in subregions}
 
-    ENSEMBLE_METRICS = ["rmse_ensmean", "mae_ensmean", "bias_ensmean", "count_ensmean", "spread"]
+    ENSEMBLE_METRICS = ["rmse_ensmean", "mae_ensmean", "bias_ensmean", "count_ensmean", "spread", "fcrps"]
     if is_ensemble:
         ensemble_container = {m: [] for m in ENSEMBLE_METRICS}
         ensemble_subregion_containers = {name: {m: [] for m in ENSEMBLE_METRICS} for name in subregions}

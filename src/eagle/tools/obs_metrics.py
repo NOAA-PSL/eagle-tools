@@ -1,7 +1,6 @@
 """
 Compute metrics against observations.
 TODO:
-    * add ensemble metrics
     * move global variables to yamls
 """
 import importlib
@@ -477,32 +476,93 @@ def _interp_to_obs_locations(fds_time_slice, matched_obs_df):
     return regridder(src)
 
 
-def compute_obs_metrics(forecast_values, obs_values, vtime):
-    """Compute verification metrics between forecast and observation values.
+def _compute_metrics_single(forecast_values, obs_values):
+    """Compute verification metrics for a single set of forecast/obs pairs.
 
     Args:
         forecast_values: 1-D numpy array of forecast values at obs locations.
         obs_values: 1-D numpy array of observation values.
-        vtime: numpy datetime64 valid time for the time coordinate.
 
     Returns:
-        xr.Dataset with rmse, mae, bias, count and a time dimension.
+        dict with rmse, mae, bias, count as scalars.
     """
     valid = np.isfinite(forecast_values) & np.isfinite(obs_values)
     n = valid.sum()
     if n == 0:
-        result = {"rmse": np.nan, "mae": np.nan, "bias": np.nan, "count": 0}
+        return {"rmse": np.nan, "mae": np.nan, "bias": np.nan, "count": 0}
+    f = forecast_values[valid]
+    o = obs_values[valid]
+    diff = f - o
+    return {
+        "rmse": float(np.sqrt(np.mean(diff**2))),
+        "mae": float(np.mean(np.abs(diff))),
+        "bias": float(np.mean(diff)),
+        "count": int(n),
+    }
+
+
+def compute_obs_metrics(forecast_values, obs_values, vtime):
+    """Compute verification metrics between forecast and observation values.
+
+    Args:
+        forecast_values: numpy array of forecast values at obs locations.
+            1-D (n_obs,) for deterministic or 2-D (n_members, n_obs) for ensemble.
+        obs_values: 1-D numpy array of observation values.
+        vtime: numpy datetime64 valid time for the time coordinate.
+
+    Returns:
+        xr.Dataset with a time dimension. For deterministic (1-D input):
+            rmse, mae, bias, count.
+        For ensemble (2-D input):
+            rmse, mae, bias with (member, time) dims (per-member metrics),
+            count with (time,) dim,
+            rmse_ensmean, mae_ensmean, bias_ensmean, count_ensmean with (time,) dim,
+            spread with (time,) dim.
+    """
+    if forecast_values.ndim == 1:
+        result = _compute_metrics_single(forecast_values, obs_values)
+        xds = xr.Dataset(result)
+        xds = xds.expand_dims({"time": [vtime]})
+        return xds
+
+    # Ensemble case: forecast_values is (n_members, n_obs)
+    n_members = forecast_values.shape[0]
+    member_results = [
+        _compute_metrics_single(forecast_values[m], obs_values)
+        for m in range(n_members)
+    ]
+
+    members = np.arange(n_members)
+    per_member_vars = {}
+    for metric in ("rmse", "mae", "bias"):
+        vals = [r[metric] for r in member_results]
+        per_member_vars[metric] = xr.DataArray(
+            vals, coords={"member": members, "time": [vtime]}, dims=("member", "time"),
+        )
+    # count is the same across members (valid obs mask is per-member but we store member 0)
+    count_val = member_results[0]["count"]
+
+    # Ensemble mean metrics
+    ensmean = np.nanmean(forecast_values, axis=0)
+    ensmean_result = _compute_metrics_single(ensmean, obs_values)
+
+    # Spread: mean across obs locations of per-location std dev across members (ddof=0)
+    valid = np.isfinite(forecast_values).all(axis=0) & np.isfinite(obs_values)
+    if valid.sum() == 0:
+        spread_val = np.nan
     else:
-        f = forecast_values[valid]
-        o = obs_values[valid]
-        diff = f - o
-        result = {
-            "rmse": float(np.sqrt(np.mean(diff**2))),
-            "mae": float(np.mean(np.abs(diff))),
-            "bias": float(np.mean(diff)),
-            "count": int(n),
-        }
-    xds = xr.Dataset(result)
+        spread_val = float(np.mean(np.std(forecast_values[:, valid], axis=0, ddof=0)))
+
+    scalar_vars = {
+        "count": count_val,
+        "rmse_ensmean": ensmean_result["rmse"],
+        "mae_ensmean": ensmean_result["mae"],
+        "bias_ensmean": ensmean_result["bias"],
+        "count_ensmean": ensmean_result["count"],
+        "spread": spread_val,
+    }
+
+    xds = xr.Dataset({**per_member_vars, **{k: v for k, v in scalar_vars.items()}})
     xds = xds.expand_dims({"time": [vtime]})
     return xds
 
@@ -562,6 +622,8 @@ def main(config):
     lead_time = config["lead_time"]
     temporal_window = pd.Timedelta(config.get("temporal_window", "30min"))
     max_qc_value = config.get("max_qc_value", 2)
+    n_members = config.get("n_members", 1)
+    is_ensemble = n_members > 1
 
     # Parse subregions
     subregions = _parse_subregions(config)
@@ -591,6 +653,11 @@ def main(config):
     container = {"rmse": [], "mae": [], "bias": [], "count": []}
     subregion_containers = {name: {"rmse": [], "mae": [], "bias": [], "count": []} for name in subregions}
 
+    ENSEMBLE_METRICS = ["rmse_ensmean", "mae_ensmean", "bias_ensmean", "count_ensmean", "spread"]
+    if is_ensemble:
+        ensemble_container = {m: [] for m in ENSEMBLE_METRICS}
+        ensemble_subregion_containers = {name: {m: [] for m in ENSEMBLE_METRICS} for name in subregions}
+
     logger.info(f"Observation Verification")
     logger.info(f"Datasets: {list(DATASET_REGISTRY.keys())}")
     logger.info(f"Temporal window: +/- {temporal_window}")
@@ -613,33 +680,43 @@ def main(config):
         logger.info(f"Processing {st0}")
 
         # Load forecast using base variable names and levels
-        if config.get("from_anemoi", True):
-            fname = f"{config['forecast_path']}/{st0}.{lead_time}h.nc"
-            fds = open_anemoi_inference_dataset(
-                fname,
-                model_type=model_type,
-                lam_index=lam_index,
-                trim_edge=config.get("trim_forecast_edge", None),
-                vars_of_interest=config.get("variables"),
-                levels=levels,
-                load=True,
-                lcc_info=config.get("lcc_info", None),
-                horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
-                reshape_cell_to_2d=True,
-                rename_to_longnames=True,
-            )
+        member_fds_list = []
+        for member in range(n_members):
+            if config.get("from_anemoi", True):
+                fname = f"{config['forecast_path']}/{st0}.{lead_time}h.nc"
+                if is_ensemble:
+                    fname = fname.replace(".nc", f".member{member:03d}.nc")
+                member_fds = open_anemoi_inference_dataset(
+                    fname,
+                    model_type=model_type,
+                    lam_index=lam_index,
+                    trim_edge=config.get("trim_forecast_edge", None),
+                    vars_of_interest=config.get("variables"),
+                    levels=levels,
+                    load=True,
+                    lcc_info=config.get("lcc_info", None),
+                    horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
+                    reshape_cell_to_2d=True,
+                    rename_to_longnames=True,
+                )
+            else:
+                member_fds = open_forecast_zarr_dataset(
+                    config["forecast_path"],
+                    t0=t0,
+                    trim_edge=config.get("trim_forecast_edge", None),
+                    vars_of_interest=config.get("variables"),
+                    levels=levels,
+                    load=True,
+                    lcc_info=config.get("lcc_info", None),
+                    reshape_cell_to_2d=True,
+                    rename_to_longnames=True,
+                )
+            member_fds_list.append(member_fds)
+
+        if is_ensemble:
+            fds = xr.concat(member_fds_list, dim="member")
         else:
-            fds = open_forecast_zarr_dataset(
-                config["forecast_path"],
-                t0=t0,
-                trim_edge=config.get("trim_forecast_edge", None),
-                vars_of_interest=config.get("variables"),
-                levels=levels,
-                load=True,
-                lcc_info=config.get("lcc_info", None),
-                reshape_cell_to_2d=True,
-                rename_to_longnames=True,
-            )
+            fds = member_fds_list[0]
 
         # Get forecast valid times
         forecast_valid_times = fds["time"].values
@@ -667,25 +744,40 @@ def main(config):
             sr_name: {metric: {varname: [] for varname in forecast_var_names} for metric in container.keys()}
             for sr_name in subregions
         }
+        if is_ensemble:
+            ensemble_container_per_ic = {metric: {varname: [] for varname in forecast_var_names} for metric in ENSEMBLE_METRICS}
+            ensemble_subregion_container_per_ic = {
+                sr_name: {metric: {varname: [] for varname in forecast_var_names} for metric in ENSEMBLE_METRICS}
+                for sr_name in subregions
+            }
 
         for vtime in forecast_valid_times:
             vtimestamp = pd.Timestamp(vtime)
 
             # Handle case where we don't have obs
             if vtimestamp not in aligned:
+                if is_ensemble:
+                    empty_fvals = np.full((n_members, 1), np.nan)
+                else:
+                    empty_fvals = np.array([np.nan])
+                empty_result = compute_obs_metrics(empty_fvals, np.array([np.nan]), vtime)
                 for varname in forecast_var_names:
                     for metric in container.keys():
-                        fillvalue = 0 if metric == "count" else np.nan
-                        fillds = xr.DataArray(fillvalue, coords={"time": [vtime]}, dims=("time",))
-                        container_per_ic[metric][varname].append(fillds)
+                        container_per_ic[metric][varname].append(empty_result[metric])
                         for sr_name in subregions:
-                            subregion_container_per_ic[sr_name][metric][varname].append(fillds)
+                            subregion_container_per_ic[sr_name][metric][varname].append(empty_result[metric])
+                    if is_ensemble:
+                        for metric in ENSEMBLE_METRICS:
+                            ensemble_container_per_ic[metric][varname].append(empty_result[metric])
+                            for sr_name in subregions:
+                                ensemble_subregion_container_per_ic[sr_name][metric][varname].append(empty_result[metric])
                 continue
 
             matched_obs = aligned[vtimestamp]
 
             # Interp to obs locations and compute metrics
             interpolated = _interp_to_obs_locations(fds.sel(time=vtime), matched_obs)
+
             for varname, vinfo in variable_map.items():
                 fvals = interpolated[vinfo["base_name"]]
                 if "level" in fvals.dims:
@@ -698,16 +790,25 @@ def main(config):
                 )
                 for metric in container.keys():
                     container_per_ic[metric][varname].append(result[metric])
+                if is_ensemble:
+                    for metric in ENSEMBLE_METRICS:
+                        ensemble_container_per_ic[metric][varname].append(result[metric])
 
             # Subregion metrics
             for sr_name, sr_bounds in subregions.items():
                 sr_obs = _filter_obs_by_subregion(matched_obs, sr_bounds)
                 if len(sr_obs) == 0:
+                    if is_ensemble:
+                        empty_fvals = np.full((n_members, 1), np.nan)
+                    else:
+                        empty_fvals = np.array([np.nan])
+                    sr_empty_result = compute_obs_metrics(empty_fvals, np.array([np.nan]), vtime)
                     for varname in forecast_var_names:
                         for metric in container.keys():
-                            fillvalue = 0 if metric == "count" else np.nan
-                            fillds = xr.DataArray(fillvalue, coords={"time": [vtime]}, dims=("time",))
-                            subregion_container_per_ic[sr_name][metric][varname].append(fillds)
+                            subregion_container_per_ic[sr_name][metric][varname].append(sr_empty_result[metric])
+                        if is_ensemble:
+                            for metric in ENSEMBLE_METRICS:
+                                ensemble_subregion_container_per_ic[sr_name][metric][varname].append(sr_empty_result[metric])
                 else:
                     sr_interpolated = _interp_to_obs_locations(fds.sel(time=vtime), sr_obs)
                     for varname, vinfo in variable_map.items():
@@ -721,6 +822,9 @@ def main(config):
                         )
                         for metric in container.keys():
                             subregion_container_per_ic[sr_name][metric][varname].append(sr_result[metric])
+                        if is_ensemble:
+                            for metric in ENSEMBLE_METRICS:
+                                ensemble_subregion_container_per_ic[sr_name][metric][varname].append(sr_result[metric])
 
         # Assemble into xr.Dataset, grouping upper-air variables by base
         # name with a level dimension
@@ -778,6 +882,60 @@ def main(config):
                 this_metric_ds = postprocess(xr.Dataset(data_vars))
                 subregion_containers[sr_name][metric].append(this_metric_ds)
 
+        # Assemble ensemble metrics
+        if is_ensemble:
+            for metric, thedata in ensemble_container_per_ic.items():
+                base_groups = {}
+                for varname, vals in thedata.items():
+                    vinfo = variable_map[varname]
+                    bn = vinfo["base_name"]
+                    level = vinfo["level"]
+                    time_concat = xr.concat(vals, dim="time")
+                    if bn not in base_groups:
+                        base_groups[bn] = {}
+                    base_groups[bn][level] = time_concat
+
+                data_vars = {}
+                for bn, level_dict in base_groups.items():
+                    if None in level_dict:
+                        data_vars[bn] = level_dict[None]
+                    else:
+                        level_arrays = []
+                        for lvl in sorted(level_dict.keys()):
+                            arr = level_dict[lvl].expand_dims({"level": [lvl]})
+                            level_arrays.append(arr)
+                        data_vars[bn] = xr.concat(level_arrays, dim="level")
+
+                this_metric_ds = postprocess(xr.Dataset(data_vars))
+                ensemble_container[metric].append(this_metric_ds)
+
+            # Assemble ensemble subregion metrics
+            for sr_name, sr_cpi in ensemble_subregion_container_per_ic.items():
+                for metric, thedata in sr_cpi.items():
+                    base_groups = {}
+                    for varname, vals in thedata.items():
+                        vinfo = variable_map[varname]
+                        bn = vinfo["base_name"]
+                        level = vinfo["level"]
+                        time_concat = xr.concat(vals, dim="time")
+                        if bn not in base_groups:
+                            base_groups[bn] = {}
+                        base_groups[bn][level] = time_concat
+
+                    data_vars = {}
+                    for bn, level_dict in base_groups.items():
+                        if None in level_dict:
+                            data_vars[bn] = level_dict[None]
+                        else:
+                            level_arrays = []
+                            for lvl in sorted(level_dict.keys()):
+                                arr = level_dict[lvl].expand_dims({"level": [lvl]})
+                                level_arrays.append(arr)
+                            data_vars[bn] = xr.concat(level_arrays, dim="level")
+
+                    this_metric_ds = postprocess(xr.Dataset(data_vars))
+                    ensemble_subregion_containers[sr_name][metric].append(this_metric_ds)
+
         logger.info(f"Done with {st0}")
 
     logger.info("Done Computing Observation Verification Metrics")
@@ -788,6 +946,12 @@ def main(config):
     for sr_name in subregions:
         for name in subregion_containers[sr_name].keys():
             subregion_containers[sr_name][name] = topo.gather(subregion_containers[sr_name][name])
+    if is_ensemble:
+        for name in ensemble_container.keys():
+            ensemble_container[name] = topo.gather(ensemble_container[name])
+        for sr_name in subregions:
+            for name in ensemble_subregion_containers[sr_name].keys():
+                ensemble_subregion_containers[sr_name][name] = topo.gather(ensemble_subregion_containers[sr_name][name])
 
     if topo.is_root:
         for name in container:
@@ -814,5 +978,32 @@ def main(config):
                 fname = f"{config['output_path']}/{metric}.convobs.{model_type}.{sr_name}.nc"
                 xds.to_netcdf(fname)
                 logger.info(f"Stored result: {fname}")
+
+        # Write ensemble metric files
+        if is_ensemble:
+            for name in ensemble_container:
+                c = ensemble_container[name]
+                if config["use_mpi"]:
+                    c = [xds for sublist in c for xds in sublist]
+                c = sorted(c, key=lambda xds: xds.coords["t0"])
+                ensemble_container[name] = xr.concat(c, dim="t0")
+
+            for metric, xds in ensemble_container.items():
+                fname = f"{config['output_path']}/{metric}.convobs.{model_type}.nc"
+                xds.to_netcdf(fname)
+                logger.info(f"Stored result: {fname}")
+
+            for sr_name, sr_container in ensemble_subregion_containers.items():
+                for name in sr_container:
+                    c = sr_container[name]
+                    if config["use_mpi"]:
+                        c = [xds for sublist in c for xds in sublist]
+                    c = sorted(c, key=lambda xds: xds.coords["t0"])
+                    sr_container[name] = xr.concat(c, dim="t0")
+
+                for metric, xds in sr_container.items():
+                    fname = f"{config['output_path']}/{metric}.convobs.{model_type}.{sr_name}.nc"
+                    xds.to_netcdf(fname)
+                    logger.info(f"Stored result: {fname}")
 
         logger.info("Done Storing Observation Verification Metrics")

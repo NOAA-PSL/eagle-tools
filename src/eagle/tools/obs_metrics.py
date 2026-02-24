@@ -1,5 +1,13 @@
+"""
+Compute metrics against observations.
+TODO:
+    * add ensemble metrics
+    * move global variables to yamls
+"""
+import importlib
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import yaml
 
 import numpy as np
 import xarray as xr
@@ -31,48 +39,47 @@ def _dewpoint_to_specific_humidity(td_kelvin, pressure_hpa):
 
 DATASET_REGISTRY = {
     "conv-adpupa-NC002001": {
-        "t": {"obs_var": "TMDB", "obs_qc_var": "QMAT"},
-        "gh": {"obs_var": "GP10", "obs_qc_var": "QMGP", "unit_conversion": "gp_to_gph"},
-        "u": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
-        "v": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
-        "q": {"obs_var": "TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
+        "temperature": {"obs_var": "TMDB", "obs_qc_var": "QMAT"},
+        "geopotential_height": {"obs_var": "GP10", "obs_qc_var": "QMGP", "unit_conversion": "gp_to_gph"},
+        "zonal_wind": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
+        "meridional_wind": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
+        "specific_humidity": {"obs_var": "TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000001": {
-        "t2m": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
-        "sp": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
-        "u10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "v10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "sh2": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
+        "2m_temperature": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
+        "surface_pressure": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
+        "10m_zonal_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
+        "10m_meridional_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
+        "2m_specific_humidity": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000002": {
-        "t2m": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
-        "sp": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
-        "u10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "v10": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "sh2": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
+        "2m_temperature": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
+        "surface_pressure": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
+        "10m_zonal_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
+        "10m_meridional_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
+        "2m_specific_humidity": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000007": {
-        "t2m": {"obs_var": "MTRTMP.TMDB", "obs_qc_var": "MTRTMP.QMAT"},
-        "u10": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
-        "v10": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
+        "2m_temperature": {"obs_var": "MTRTMP.TMDB", "obs_qc_var": "MTRTMP.QMAT"},
+        "10m_zonal_wind": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
+        "10m_meridional_wind": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
     },
     "conv-adpsfc-NC000101": {
-        "t2m": {"obs_var": "TEMHUMDA.TMDB", "obs_qc_var": "QMAT"},
-        "sp": {"obs_var": "PRESDATA.PRESSQ03.PRES", "obs_qc_var": "QMPR"},
-        "u10": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
-        "v10": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
-        "sh2": {"obs_var": "TEMHUMDA.TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
+        "2m_temperature": {"obs_var": "TEMHUMDA.TMDB", "obs_qc_var": "QMAT"},
+        "surface_pressure": {"obs_var": "PRESDATA.PRESSQ03.PRES", "obs_qc_var": "QMPR"},
+        "10m_zonal_wind": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
+        "10m_meridional_wind": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
+        "2m_specific_humidity": {"obs_var": "TEMHUMDA.TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
     },
 }
 
 WIND_VARIABLES = {
-    "u":   {"group": "uv",   "component": "u"},
-    "v":   {"group": "uv",   "component": "v"},
-    "u10": {"group": "uv10", "component": "u"},
-    "v10": {"group": "uv10", "component": "v"},
+    "zonal_wind":   {"group": "uv",   "component": "zonal_wind"},
+    "meridional_wind":   {"group": "uv",   "component": "meridional_wind"},
+    "10m_zonal_wind": {"group": "u10m_meridional_wind", "component": "zonal_wind"},
+    "10m_meridional_wind": {"group": "u10m_meridional_wind", "component": "meridional_wind"},
 }
 
-DEFAULT_VARIABLES = ["t", "gh", "t2m", "sp", "u", "v", "u10", "v10", "q", "sh2"]
 DEFAULT_LEVELS = [500, 850]
 
 
@@ -95,17 +102,24 @@ def build_variable_map(config):
     can coexist in the same DataFrame without collisions.
 
     Returns:
-        dict keyed by forecast variable name (e.g. "t_850", "u_850", "v10").
+        dict keyed by forecast variable name (e.g. "t_850", "u_850", "10m_meridional_wind").
     """
     all_registry_vars = set()
     for reg in DATASET_REGISTRY.values():
         all_registry_vars.update(reg.keys())
 
-    variables = config.get("variables", DEFAULT_VARIABLES)
+    # get user requested variables and rename to common naming convention
+    variables = config.get("variables")
+    rename_path = importlib.resources.files("eagle.tools.config") / "rename.yaml"
+    with rename_path.open("r") as f:
+        rdict = yaml.safe_load(f)
+
+    renamed = [rdict.get(key, key) for key in variables]
+
     levels = config.get("levels", DEFAULT_LEVELS)
     variable_map = {}
 
-    for base_name in variables:
+    for base_name in renamed:
         if base_name not in all_registry_vars:
             raise ValueError(
                 f"Variable '{base_name}' is not available in any dataset. "
@@ -341,7 +355,7 @@ def derive_wind_components(obs_df, variable_map):
 
         wdir_rad = np.deg2rad(obs_df[wdir_col])
         wspd = obs_df[wspd_col]
-        if component == "u":
+        if component == "zonal_wind":
             obs_df[obs_col] = -wspd * np.sin(wdir_rad)
         else:
             obs_df[obs_col] = -wspd * np.cos(wdir_rad)
@@ -370,7 +384,7 @@ def convert_dewpoint_to_specific_humidity(obs_df, variable_map):
     Pressure source:
     - Upper-air (level is not None): pressure = level in hPa.
     - Surface (level is None): pressure = observed surface pressure from the
-      ``obs_sp`` column (Pa, divided by 100 to get hPa).
+      ``obs_surface_pressure`` column (Pa, divided by 100 to get hPa).
     """
     has_dewpoint_var = any(
         v.get("needs_dewpoint_conversion") for v in variable_map.values()
@@ -379,12 +393,13 @@ def convert_dewpoint_to_specific_humidity(obs_df, variable_map):
         return obs_df
 
     # Validate that surface humidity vars have surface pressure available
+    sp_col = "obs_surface_pressure"
     for forecast_var, vinfo in variable_map.items():
         if not vinfo.get("needs_dewpoint_conversion"):
             continue
-        if vinfo["level"] is None and "obs_sp" not in obs_df.columns:
+        if vinfo["level"] is None and sp_col not in obs_df.columns:
             raise ValueError(
-                f"{vinfo['base_name']} requires 'sp' in variables list "
+                f"{vinfo['base_name']} requires 'surface_pressure' in variables list "
                 "to provide pressure for dewpoint conversion"
             )
 
@@ -399,7 +414,7 @@ def convert_dewpoint_to_specific_humidity(obs_df, variable_map):
         if vinfo["level"] is not None:
             pressure_hpa = float(vinfo["level"])
         else:
-            pressure_hpa = obs_df["obs_sp"] / 100.0
+            pressure_hpa = obs_df[sp_col] / 100.0
 
         obs_df[obs_col] = _dewpoint_to_specific_humidity(td, pressure_hpa)
         logger.info(f"Converted dewpoint to specific humidity for {obs_col}")
@@ -605,23 +620,25 @@ def main(config):
                 model_type=model_type,
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
-                vars_of_interest=base_var_names,
+                vars_of_interest=config.get("variables"),
                 levels=levels,
                 load=True,
                 lcc_info=config.get("lcc_info", None),
                 horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
                 reshape_cell_to_2d=True,
+                rename_to_longnames=True,
             )
         else:
             fds = open_forecast_zarr_dataset(
                 config["forecast_path"],
                 t0=t0,
                 trim_edge=config.get("trim_forecast_edge", None),
-                vars_of_interest=base_var_names,
+                vars_of_interest=config.get("variables"),
                 levels=levels,
                 load=True,
                 lcc_info=config.get("lcc_info", None),
                 reshape_cell_to_2d=True,
+                rename_to_longnames=True,
             )
 
         # Get forecast valid times

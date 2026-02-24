@@ -481,7 +481,7 @@ def main(config):
     model_type = config.get("model_type")
     lam_index = config.get("lam_index", None)
     lead_time = config["lead_time"]
-    temporal_window = pd.Timedelta(config.get("temporal_window", "3h"))
+    temporal_window = pd.Timedelta(config.get("temporal_window", "30min"))
     max_qc_value = config.get("max_qc_value", 2)
 
     # Parse subregions
@@ -562,8 +562,8 @@ def main(config):
         forecast_valid_times = fds["time"].values
 
         # Load observations for the full valid time range (padded by window)
-        time_start = pd.Timestamp(forecast_valid_times[0]) - temporal_window
-        time_end = pd.Timestamp(forecast_valid_times[-1]) + temporal_window
+        time_start = pd.Timestamp(forecast_valid_times[0], tz="UTC") - temporal_window
+        time_end = pd.Timestamp(forecast_valid_times[-1], tz="UTC") + temporal_window
         obs_df = load_all_observations((time_start, time_end), variable_map)
 
         # QC filter and unit conversion

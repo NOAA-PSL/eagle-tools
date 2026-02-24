@@ -53,10 +53,8 @@ DATASET_REGISTRY = {
     },
     "conv-adpsfc-NC000007": {
         "t2m": {"obs_var": "MTRTMP.TMDB", "obs_qc_var": "MTRTMP.QMAT"},
-        "sp": {"obs_var": "MTRPRS.PRES", "obs_qc_var": "MTRPRS.QMPR"},
         "u10": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
         "v10": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
-        "sh2": {"obs_var": "MTRTMP.TMDP", "obs_qc_var": "MTRTMP.QMDD", "needs_dewpoint_conversion": True},
     },
     "conv-adpsfc-NC000101": {
         "t2m": {"obs_var": "TEMHUMDA.TMDB", "obs_qc_var": "QMAT"},

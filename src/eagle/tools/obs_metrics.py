@@ -594,16 +594,20 @@ def _parse_subregions(config):
         if "latitude" not in bounds and "longitude" not in bounds:
             raise ValueError(f"Subregion '{name}' must have at least 'latitude' or 'longitude'")
         lat = tuple(bounds["latitude"]) if "latitude" in bounds else (-90, 90)
-        lon = bounds.get("longitude", [-180, 180])
-        lon = (lon[0] % 360, lon[1] % 360)
+        lon = bounds.get("longitude", [0, 359.99])
+        lon = tuple(ll % 360 for ll in lon)
         subregions[name] = {"latitude": lat, "longitude": lon}
     return subregions
 
 
-def _filter_obs_by_subregion(obs_df, bounds):
+def _filter_obs_by_subregion(obs_df, bounds, drop_out_of_bounds=True):
     """Filter observations DataFrame to a geographic subregion.
 
     Handles longitude wrapping around 0/360.
+
+    Note:
+        drop_out_of_bounds is a hack to reuse this function.
+        Set it to True when evaluating observations, set to False for creating subregion masks with an xarray dataset.
     """
     lat_min, lat_max = bounds["latitude"]
     lon_min, lon_max = bounds["longitude"]
@@ -612,7 +616,27 @@ def _filter_obs_by_subregion(obs_df, bounds):
         lon_mask = (obs_df["LON"] >= lon_min) & (obs_df["LON"] <= lon_max)
     else:
         lon_mask = (obs_df["LON"] >= lon_min) | (obs_df["LON"] <= lon_max)
-    return obs_df.loc[lat_mask & lon_mask]
+    if drop_out_of_bounds:
+        return obs_df.loc[lat_mask & lon_mask]
+    else:
+        return obs_df.where(lat_mask & lon_mask)
+
+
+def create_subregion_masks(subregions):
+    """Create dataset with subregion masks for visualization
+
+    Note:
+        This could be its own workflow, but for now we just spit it out whenever we run the obs workflow.
+    """
+
+    xds = xesmf.util.grid_global(1, 1, cf=True, lon1=360)
+    for sr_name, sr_bounds in subregions.items():
+        xds[sr_name] = _filter_obs_by_subregion(
+            xr.ones_like(xds["lat"]*xds["lon"]).rename({"lon":"LON", "lat": "LAT"}),
+            sr_bounds,
+            drop_out_of_bounds=False,
+        ).rename({"LON": "longitude", "LAT": "latitude"})
+    return xds
 
 
 def main(config):
@@ -644,6 +668,10 @@ def main(config):
     subregions = _parse_subregions(config)
     if subregions:
         logger.info(f"Subregions: {list(subregions.keys())}")
+        srds = create_subregion_masks(subregions)
+        fname = f"{config['output_path']}/subregions.nc"
+        srds.to_netcdf(fname)
+        logger.info(f"Stored subregion masks at {fname}")
 
     # does the user want to evaluate on a different grid?
     # this doesn't include regridding the nested -> global resolution

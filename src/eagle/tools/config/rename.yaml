@@ -9,6 +9,7 @@ u80: 80m_zonal_wind
 v80: 80m_meridional_wind
 u100: 100m_zonal_wind
 v100: 100m_meridional_wind
+gh: geopotential_height
 t: temperature
 q: specific_humidity
 u: zonal_wind

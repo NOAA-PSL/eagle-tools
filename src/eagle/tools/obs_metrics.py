@@ -108,7 +108,7 @@ def build_variable_map(config):
         all_registry_vars.update(reg.keys())
 
     # get user requested variables and rename to common naming convention
-    variables = config.get("variables")
+    variables = config.get("vars_of_interest")
     rename_path = importlib.resources.files("eagle.tools.config") / "rename.yaml"
     with rename_path.open("r") as f:
         rdict = yaml.safe_load(f)
@@ -668,10 +668,11 @@ def main(config):
     subregions = _parse_subregions(config)
     if subregions:
         logger.info(f"Subregions: {list(subregions.keys())}")
-        srds = create_subregion_masks(subregions)
-        fname = f"{config['output_path']}/subregions.nc"
-        srds.to_netcdf(fname)
-        logger.info(f"Stored subregion masks at {fname}")
+        if topo.is_root:
+            srds = create_subregion_masks(subregions)
+            fname = f"{config['output_path']}/subregions.nc"
+            srds.to_netcdf(fname)
+            logger.info(f"Stored subregion masks at {fname}")
 
     # does the user want to evaluate on a different grid?
     # this doesn't include regridding the nested -> global resolution
@@ -734,7 +735,7 @@ def main(config):
                     model_type=model_type,
                     lam_index=lam_index,
                     trim_edge=config.get("trim_forecast_edge", None),
-                    vars_of_interest=config.get("variables"),
+                    vars_of_interest=config.get("vars_of_interest"),
                     levels=levels,
                     load=True,
                     lcc_info=config.get("lcc_info", None),
@@ -747,7 +748,7 @@ def main(config):
                     config["forecast_path"],
                     t0=t0,
                     trim_edge=config.get("trim_forecast_edge", None),
-                    vars_of_interest=config.get("variables"),
+                    vars_of_interest=config.get("vars_of_interest"),
                     levels=levels,
                     load=True,
                     lcc_info=config.get("lcc_info", None),

@@ -527,49 +527,52 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
 
     # Ensemble case: forecast_values is (n_members, n_obs)
     n_members = forecast_values.shape[0]
-    member_results = [
-        _compute_metrics_single(forecast_values[m], obs_values)
-        for m in range(n_members)
-    ]
+    forecast = xr.DataArray(
+        forecast_values,
+        dims=("member", "locations"),
+        coords={"member": np.arange(n_members)},
+    )
+    obs = xr.DataArray(obs_values, dims="locations")
 
-    members = np.arange(n_members)
-    per_member_vars = {}
-    for metric in ("rmse", "mae", "bias"):
-        vals = [r[metric] for r in member_results]
-        per_member_vars[metric] = xr.DataArray(
-            vals, coords={"member": members, "time": [vtime]}, dims=("member", "time"),
-        )
-    # count is the same across members (valid obs mask is per-member but we store member 0)
-    count_val = member_results[0]["count"]
+    # Mask locations where any member or the obs is NaN
+    valid = forecast.notnull().all("member") & obs.notnull()
+    forecast = forecast.where(valid)
+    obs = obs.where(valid)
+    n_valid = valid.sum().item()
+
+    # Per-member metrics
+    diff = forecast - obs
+    per_member_vars = {
+        "rmse": np.sqrt((diff**2).mean("locations")),
+        "mae": np.abs(diff).mean("locations"),
+        "bias": diff.mean("locations"),
+    }
 
     # Ensemble mean metrics
-    ensmean = np.nanmean(forecast_values, axis=0)
-    ensmean_result = _compute_metrics_single(ensmean, obs_values)
+    ensmean_diff = forecast.mean("member") - obs
+    ensmean_metrics = {
+        "rmse_ensmean": float(np.sqrt((ensmean_diff**2).mean("locations"))),
+        "mae_ensmean": float(np.abs(ensmean_diff).mean("locations")),
+        "bias_ensmean": float(ensmean_diff.mean("locations")),
+        "count_ensmean": n_valid,
+    }
 
-    # Spread: mean across obs locations of per-location std dev across members (ddof=0)
-    valid = np.isfinite(forecast_values).all(axis=0) & np.isfinite(obs_values)
-    if valid.sum() == 0:
-        spread_val = np.nan
+    # Spread: mean across locations of per-location std dev across members
+    spread_val = float(forecast.std("member").mean("locations")) if n_valid > 0 else np.nan
+
+    # Fair CRPS: (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
+    if n_valid == 0:
         fcrps_val = np.nan
     else:
-        spread_val = float(np.mean(np.std(forecast_values[:, valid], axis=0, ddof=0)))
-
-        # Fair CRPS: (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
-        f_valid = forecast_values[:, valid]  # (n_members, n_valid)
-        o_valid = obs_values[valid]
-        abs_err = np.mean(np.abs(f_valid - o_valid), axis=0)  # mean over members per location
-        pairwise = np.mean(
-            np.abs(f_valid[:, None, :] - f_valid[None, :, :]),
-            axis=(0, 1),
-        )  # mean over (i, j) pairs per location
-        fcrps_val = float(np.mean(abs_err - pairwise / (2 * (n_members - 1))))
+        abs_err = np.abs(forecast - obs).mean("member")
+        pairwise = np.abs(
+            forecast - forecast.rename({"member": "_member"})
+        ).mean(("member", "_member"))
+        fcrps_val = float((abs_err - pairwise / (2 * (n_members - 1))).mean("locations"))
 
     scalar_vars = {
-        "count": count_val,
-        "rmse_ensmean": ensmean_result["rmse"],
-        "mae_ensmean": ensmean_result["mae"],
-        "bias_ensmean": ensmean_result["bias"],
-        "count_ensmean": ensmean_result["count"],
+        "count": n_valid,
+        **ensmean_metrics,
         "spread": spread_val,
         "fcrps": fcrps_val,
     }

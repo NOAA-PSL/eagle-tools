@@ -435,12 +435,8 @@ def align_obs_to_forecast_times(obs_df, forecast_valid_times, window):
     aligned = {}
     obs_times = obs_df["OBS_TIMESTAMP"]
 
-    # Remove timezone info if present, to match forecast times (tz-naive)
-    if hasattr(obs_times.dtype, "tz") and obs_times.dtype.tz is not None:
-        obs_times = obs_times.dt.tz_localize(None)
-
     for vt in forecast_valid_times:
-        vtimestamp = pd.Timestamp(vt)
+        vtimestamp = pd.Timestamp(vt, tz="UTC")
         mask = (obs_times >= vtimestamp - window) & (obs_times < vtimestamp + window)
         matched = obs_df.loc[mask]
         if len(matched) > 0:
@@ -766,8 +762,8 @@ def main(config):
         forecast_valid_times = fds["time"].values
 
         # Load observations for the full valid time range (padded by window)
-        time_start = pd.Timestamp(forecast_valid_times[0], tz="UTC") - temporal_window
-        time_end = pd.Timestamp(forecast_valid_times[-1], tz="UTC") + temporal_window
+        time_start = pd.Timestamp(forecast_valid_times[0], tz="UTC") - temporal_window - pd.Timedelta("24h")
+        time_end = pd.Timestamp(forecast_valid_times[-1], tz="UTC") + temporal_window + pd.Timedelta("24h")
         obs_df = load_all_observations((time_start, time_end), variable_map)
 
         # QC filter and unit conversion
@@ -796,7 +792,7 @@ def main(config):
             }
 
         for vtime in forecast_valid_times:
-            vtimestamp = pd.Timestamp(vtime)
+            vtimestamp = pd.Timestamp(vtime, tz="UTC")
 
             # Handle case where we don't have obs
             if vtimestamp not in aligned:

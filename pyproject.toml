@@ -46,5 +46,12 @@ where = ["src"]
 [project.scripts]
 eagle-tools = "eagle.tools.cli:cli"
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.10",
+]
+
 [tool.setuptools.package-data]
 "eagle.tools.config" = ["*.yaml"]

@@ -76,6 +76,7 @@ def build_variable_map(config, levels, obs_config=None):
 
     dataset_registry = obs_config["dataset_registry"]
     wind_variables = obs_config["wind_variables"]
+    derived_variables = obs_config.get("derived_variables", {})
 
     all_registry_vars = set()
     for reg in dataset_registry.values():
@@ -107,6 +108,7 @@ def build_variable_map(config, levels, obs_config=None):
                 break
 
         upper_air = _is_upper_air(base_name, dataset_registry)
+        is_derived = base_name in derived_variables
 
         if upper_air and levels:
             for level in levels:
@@ -125,6 +127,8 @@ def build_variable_map(config, levels, obs_config=None):
                     entry["obs_wdir_col"] = f"obs_wdir_{group}_{level}"
                     entry["obs_qc_col"] = f"obs_qc_{group}_{level}"
                     entry["wind_component"] = wind_variables[base_name]["component"]
+                if is_derived:
+                    entry["forecast_components"] = derived_variables[base_name]["forecast_components"]
                 variable_map[forecast_var] = entry
         else:
             entry = {
@@ -141,6 +145,8 @@ def build_variable_map(config, levels, obs_config=None):
                 entry["obs_wdir_col"] = f"obs_wdir_{group}"
                 entry["obs_qc_col"] = f"obs_qc_{group}"
                 entry["wind_component"] = wind_variables[base_name]["component"]
+            if is_derived:
+                entry["forecast_components"] = derived_variables[base_name]["forecast_components"]
             variable_map[base_name] = entry
 
     return variable_map
@@ -635,9 +641,24 @@ def _compute_metrics_for_obs(fds_time_slice, matched_obs, variable_map, vtime, n
     ensemble_results = {m: {} for m in ENSEMBLE_METRICS} if is_ensemble else {}
 
     for varname, vinfo in variable_map.items():
-        fvals = interpolated[vinfo["base_name"]]
-        if "level" in fvals.dims:
-            fvals = fvals.sel(level=vinfo["level"])
+        if "forecast_components" in vinfo:
+            components = vinfo["forecast_components"]
+            if "u" in components and "v" in components:
+                u = interpolated[components["u"]]
+                v = interpolated[components["v"]]
+                if "level" in u.dims:
+                    u = u.sel(level=vinfo["level"])
+                    v = v.sel(level=vinfo["level"])
+                fvals = np.sqrt(u**2 + v**2)
+            else:
+                raise ValueError(
+                    f"Unknown forecast_components for '{varname}': {components}. "
+                    "Only wind speed (u/v) derivation is currently supported."
+                )
+        else:
+            fvals = interpolated[vinfo["base_name"]]
+            if "level" in fvals.dims:
+                fvals = fvals.sel(level=vinfo["level"])
 
         result = compute_obs_metrics(
             fvals.values,
@@ -672,11 +693,19 @@ def _make_empty_results(forecast_var_names, n_members, is_ensemble, vtime):
     return base_results, ensemble_results
 
 
-def _load_forecast(config, t0, member, levels):
-    """Load a single forecast member."""
+def _load_forecast(config, t0, member, levels, derived_var_names=None):
+    """Load a single forecast member.
+
+    Derived variable names (e.g. wind_speed) are filtered out of
+    vars_of_interest since they don't exist in the raw forecast dataset.
+    """
     st0 = t0.strftime("%Y-%m-%dT%H")
     model_type = config.get("model_type")
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
+
+    vars_of_interest = config.get("vars_of_interest")
+    if vars_of_interest is not None and derived_var_names:
+        vars_of_interest = [v for v in vars_of_interest if v not in derived_var_names]
 
     if config.get("from_anemoi", True):
         fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
@@ -687,7 +716,7 @@ def _load_forecast(config, t0, member, levels):
             model_type=model_type,
             lam_index=config.get("lam_index", None),
             trim_edge=config.get("trim_forecast_edge", None),
-            vars_of_interest=config.get("vars_of_interest"),
+            vars_of_interest=vars_of_interest,
             levels=levels,
             load=True,
             lcc_info=config.get("lcc_info", None),
@@ -700,7 +729,7 @@ def _load_forecast(config, t0, member, levels):
             config["forecast_path"],
             t0=t0,
             trim_edge=config.get("trim_forecast_edge", None),
-            vars_of_interest=config.get("vars_of_interest"),
+            vars_of_interest=vars_of_interest,
             levels=levels,
             load=True,
             lcc_info=config.get("lcc_info", None),
@@ -771,6 +800,19 @@ def main(config):
     logger.info(f"Max QC value: {max_qc_value}")
     logger.info(f"Initial Conditions:\n{dates}")
 
+    # Derived variables (e.g. wind_speed) don't exist in raw forecast datasets
+    # Collect both long names and any short-name aliases so they get filtered
+    derived_variables = obs_config.get("derived_variables", {})
+    derived_long_names = set(derived_variables.keys())
+    rename_path = importlib.resources.files("eagle.tools.config") / "rename.yaml"
+    with rename_path.open("r") as f:
+        rdict = yaml.safe_load(f)
+    reverse_rename = {v: k for k, v in rdict.items()}
+    derived_var_names = set(derived_long_names)
+    for ln in derived_long_names:
+        if ln in reverse_rename:
+            derived_var_names.add(reverse_rename[ln])
+
     # Track whether we've discovered levels yet
     levels = user_levels
     variable_map = None
@@ -791,7 +833,10 @@ def main(config):
         logger.info(f"Processing {st0}")
 
         # Load forecast
-        member_fds_list = [_load_forecast(config, t0, member, levels) for member in range(n_members)]
+        member_fds_list = [
+            _load_forecast(config, t0, member, levels, derived_var_names=derived_var_names)
+            for member in range(n_members)
+        ]
 
         if is_ensemble:
             fds = xr.concat(member_fds_list, dim="member")

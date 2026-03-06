@@ -24,6 +24,9 @@ dataset_registry:
       obs_var: TMDP
       obs_qc_var: QMDD
       needs_dewpoint_conversion: true
+    wind_speed:
+      obs_var: WSPD
+      obs_qc_var: QMWN
 
   conv-adpsfc-NC000001:
     2m_temperature:
@@ -44,6 +47,9 @@ dataset_registry:
       obs_var: TMPSQ1.TMDP
       obs_qc_var: TMPSQ1.QMDD
       needs_dewpoint_conversion: true
+    10m_wind_speed:
+      obs_var: WNDSQ1.WSPD
+      obs_qc_var: WNDSQ1.QMWN
 
   conv-adpsfc-NC000002:
     2m_temperature:
@@ -64,6 +70,9 @@ dataset_registry:
       obs_var: TMPSQ1.TMDP
       obs_qc_var: TMPSQ1.QMDD
       needs_dewpoint_conversion: true
+    10m_wind_speed:
+      obs_var: WNDSQ1.WSPD
+      obs_qc_var: WNDSQ1.QMWN
 
   conv-adpsfc-NC000007:
     2m_temperature:
@@ -76,6 +85,9 @@ dataset_registry:
     10m_meridional_wind:
       obs_wspd_var: MTRWND.WSPD
       obs_wdir_var: MTRWND.WDIR
+      obs_qc_var: MTRWND.QMWN
+    10m_wind_speed:
+      obs_var: MTRWND.WSPD
       obs_qc_var: MTRWND.QMWN
 
   conv-adpsfc-NC000101:
@@ -97,6 +109,9 @@ dataset_registry:
       obs_var: TEMHUMDA.TMDP
       obs_qc_var: QMDD
       needs_dewpoint_conversion: true
+    10m_wind_speed:
+      obs_var: BSYWND1.WSPD
+      obs_qc_var: QMWN
 
 wind_variables:
   zonal_wind:
@@ -111,3 +126,13 @@ wind_variables:
   10m_meridional_wind:
     group: u10m_meridional_wind
     component: meridional_wind
+
+derived_variables:
+  wind_speed:
+    forecast_components:
+      u: zonal_wind
+      v: meridional_wind
+  10m_wind_speed:
+    forecast_components:
+      u: 10m_zonal_wind
+      v: 10m_meridional_wind

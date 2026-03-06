@@ -432,7 +432,8 @@ obs_metrics.help = """Verify forecasts against real observations (e.g., radioson
     This workflow loads forecast data and compares it against irregular
     observation data (station-based, not gridded). Forecasts are interpolated
     to observation locations, and RMSE, MAE, bias, and count are computed
-    per forecast hour.
+    per forecast hour. Observation datasets and variable mappings are defined
+    in config/obs_metrics.yaml.
 
     \b
     Note:
@@ -449,8 +450,8 @@ obs_metrics.help = """Verify forecasts against real observations (e.g., radioson
         \b
         lead_time (int): Length of forecast in hours.
         \b
-        output_path (str): The directory where the output NetCDF file will be saved, as
-            f"{output_path}/obs_metrics.{obs_dataset}.nc"
+        output_path (str): The directory where output NetCDF files will be saved, as
+            f"{output_path}/{metric}.convobs.{model_type}.nc"
         \b
         start_date (str): The first initial condition date to process.
         \b
@@ -458,23 +459,35 @@ obs_metrics.help = """Verify forecasts against real observations (e.g., radioson
         \b
         freq (str): Frequency string for the date range (e.g., "12h").
         \b
+        vars_of_interest (list[str]): Variable names to verify. Names are mapped to
+            canonical names via config/rename.yaml. Derived variables like wind_speed
+            and 10m_wind_speed are supported (include their components too, e.g. u, v).
+        \b
+        levels (list[int], optional): Pressure levels (hPa) for upper-air variables.
+            If not provided, all levels present in the forecast dataset are used.
+        \b
         model_type (str, optional): The type of model grid. Defaults to "global".
         \b
-        obs_dataset (str, optional): Name of the observation dataset in nnja_ai catalog.
-            Defaults to "conv-adpupa-NC002001" (radiosondes).
-        \b
         temporal_window (str, optional): Time window (+/-) for matching obs to forecast
-            valid times. Defaults to "3h".
+            valid times. Defaults to "30min".
         \b
         max_qc_value (int, optional): Keep obs with QC flag <= this value. NaN QC flags
             are always kept. Defaults to 2.
         \b
-        variables (dict, optional): Variable pairings mapping forecast base names to
-            obs column names, QC column names, pressure levels, and unit conversions.
-            Defaults to temperature at 850 hPa and geopotential height at 500 hPa.
+        n_members (int, optional): Number of ensemble members. If > 1, ensemble metrics
+            (spread, CRPS, ensemble mean RMSE/MAE/bias) are also computed. Defaults to 1.
+        \b
+        subregions (dict, optional): Geographic subregions for regional metrics. Each entry
+            maps a name to latitude and/or longitude bounds.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the anemoi
             inference dataset format. Defaults to True.
+        \b
+        lam_index (int, optional): Index for LAM selection in nested models.
+        \b
+        lcc_info (dict, optional): Lambert Conformal Conic projection details for LAM grids.
+        \b
+        trim_forecast_edge (list[int], optional): Additional edge trimming for LAM grids.
         \b
         use_mpi (bool, optional): If True, distribute initialization dates across MPI ranks.
         \b

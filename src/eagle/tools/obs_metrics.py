@@ -1,7 +1,5 @@
 """
 Compute metrics against observations.
-TODO:
-    * move global variables to yamls
 """
 import importlib
 import logging
@@ -23,11 +21,22 @@ from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 
-GRAVITY = 9.80665
+BASE_METRICS = ["rmse", "mae", "bias", "count"]
+ENSEMBLE_METRICS = ["rmse_ensmean", "mae_ensmean", "bias_ensmean", "count_ensmean", "spread", "fcrps"]
 
-UNIT_CONVERSIONS = {
-    "gp_to_gph": lambda x: x / GRAVITY,
-}
+
+def _load_obs_config():
+    """Load observation configuration from obs_metrics.yaml."""
+    path = importlib.resources.files("eagle.tools.config") / "obs_metrics.yaml"
+    with path.open("r") as f:
+        return yaml.safe_load(f)
+
+
+def _get_unit_conversion_funcs(gravity):
+    """Build unit conversion functions using gravity from config."""
+    return {
+        "gp_to_gph": lambda x: x / gravity,
+    }
 
 
 def _dewpoint_to_specific_humidity(td_kelvin, pressure_hpa):
@@ -38,78 +47,41 @@ def _dewpoint_to_specific_humidity(td_kelvin, pressure_hpa):
     w = 0.622 * e / (pressure_hpa - e)
     return w / (1 + w)
 
-DATASET_REGISTRY = {
-    "conv-adpupa-NC002001": {
-        "temperature": {"obs_var": "TMDB", "obs_qc_var": "QMAT"},
-        "geopotential_height": {"obs_var": "GP10", "obs_qc_var": "QMGP", "unit_conversion": "gp_to_gph"},
-        "zonal_wind": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
-        "meridional_wind": {"obs_wspd_var": "WSPD", "obs_wdir_var": "WDIR", "obs_qc_var": "QMWN"},
-        "specific_humidity": {"obs_var": "TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
-    },
-    "conv-adpsfc-NC000001": {
-        "2m_temperature": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
-        "surface_pressure": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
-        "10m_zonal_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "10m_meridional_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "2m_specific_humidity": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
-    },
-    "conv-adpsfc-NC000002": {
-        "2m_temperature": {"obs_var": "TMPSQ1.TMDB", "obs_qc_var": "TMPSQ1.QMAT"},
-        "surface_pressure": {"obs_var": "PRSSQ1.PRES", "obs_qc_var": "PRSSQ1.QMPR"},
-        "10m_zonal_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "10m_meridional_wind": {"obs_wspd_var": "WNDSQ1.WSPD", "obs_wdir_var": "WNDSQ1.WDIR", "obs_qc_var": "WNDSQ1.QMWN"},
-        "2m_specific_humidity": {"obs_var": "TMPSQ1.TMDP", "obs_qc_var": "TMPSQ1.QMDD", "needs_dewpoint_conversion": True},
-    },
-    "conv-adpsfc-NC000007": {
-        "2m_temperature": {"obs_var": "MTRTMP.TMDB", "obs_qc_var": "MTRTMP.QMAT"},
-        "10m_zonal_wind": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
-        "10m_meridional_wind": {"obs_wspd_var": "MTRWND.WSPD", "obs_wdir_var": "MTRWND.WDIR", "obs_qc_var": "MTRWND.QMWN"},
-    },
-    "conv-adpsfc-NC000101": {
-        "2m_temperature": {"obs_var": "TEMHUMDA.TMDB", "obs_qc_var": "QMAT"},
-        "surface_pressure": {"obs_var": "PRESDATA.PRESSQ03.PRES", "obs_qc_var": "QMPR"},
-        "10m_zonal_wind": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
-        "10m_meridional_wind": {"obs_wspd_var": "BSYWND1.WSPD", "obs_wdir_var": "BSYWND1.WDIR", "obs_qc_var": "QMWN"},
-        "2m_specific_humidity": {"obs_var": "TEMHUMDA.TMDP", "obs_qc_var": "QMDD", "needs_dewpoint_conversion": True},
-    },
-}
 
-WIND_VARIABLES = {
-    "zonal_wind":   {"group": "uv",   "component": "zonal_wind"},
-    "meridional_wind":   {"group": "uv",   "component": "meridional_wind"},
-    "10m_zonal_wind": {"group": "u10m_meridional_wind", "component": "zonal_wind"},
-    "10m_meridional_wind": {"group": "u10m_meridional_wind", "component": "meridional_wind"},
-}
-
-DEFAULT_LEVELS = [500, 850]
-
-
-def _is_upper_air(base_name):
+def _is_upper_air(base_name, dataset_registry):
     """A variable is upper-air if it appears in any adpupa dataset."""
     return any(
         base_name in reg and "adpupa" in ds_name
-        for ds_name, reg in DATASET_REGISTRY.items()
+        for ds_name, reg in dataset_registry.items()
     )
 
 
-def build_variable_map(config):
+def build_variable_map(config, levels, obs_config=None):
     """Expand config into a flat map keyed by forecast variable name.
 
-    Reads a flat ``variables`` list and a ``levels`` list from config.
-    Upper-air variables (those appearing in any adpupa dataset) are expanded
-    across all levels; surface variables get a single entry with level=None.
+    Reads a flat ``variables`` list from config. Upper-air variables (those
+    appearing in any adpupa dataset) are expanded across all levels; surface
+    variables get a single entry with level=None.
 
-    Each entry uses level-specific obs column names so that multiple levels
-    can coexist in the same DataFrame without collisions.
+    Args:
+        config: User config dict with ``vars_of_interest``.
+        levels: List of pressure levels for upper-air expansion.
+        obs_config: Observation config from obs_metrics.yaml. Loaded if None.
 
     Returns:
-        dict keyed by forecast variable name (e.g. "t_850", "u_850", "10m_meridional_wind").
+        dict keyed by forecast variable name (e.g. "t_850", "10m_meridional_wind").
     """
+    if obs_config is None:
+        obs_config = _load_obs_config()
+
+    dataset_registry = obs_config["dataset_registry"]
+    wind_variables = obs_config["wind_variables"]
+
     all_registry_vars = set()
-    for reg in DATASET_REGISTRY.values():
+    for reg in dataset_registry.values():
         all_registry_vars.update(reg.keys())
 
-    # get user requested variables and rename to common naming convention
+    # Get user requested variables and rename to common naming convention
     variables = config.get("vars_of_interest")
     rename_path = importlib.resources.files("eagle.tools.config") / "rename.yaml"
     with rename_path.open("r") as f:
@@ -117,9 +89,7 @@ def build_variable_map(config):
 
     renamed = [rdict.get(key, key) for key in variables]
 
-    levels = config.get("levels", DEFAULT_LEVELS)
     variable_map = {}
-
     for base_name in renamed:
         if base_name not in all_registry_vars:
             raise ValueError(
@@ -130,13 +100,13 @@ def build_variable_map(config):
         # Look up unit_conversion and needs_dewpoint_conversion from the first registry entry
         conversion = None
         needs_dewpoint = False
-        for reg in DATASET_REGISTRY.values():
+        for reg in dataset_registry.values():
             if base_name in reg:
                 conversion = reg[base_name].get("unit_conversion", None)
                 needs_dewpoint = reg[base_name].get("needs_dewpoint_conversion", False)
                 break
 
-        upper_air = _is_upper_air(base_name)
+        upper_air = _is_upper_air(base_name, dataset_registry)
 
         if upper_air and levels:
             for level in levels:
@@ -149,16 +119,14 @@ def build_variable_map(config):
                     "unit_conversion": conversion,
                     "needs_dewpoint_conversion": needs_dewpoint,
                 }
-                if base_name in WIND_VARIABLES:
-                    wind_info = WIND_VARIABLES[base_name]
-                    group = wind_info["group"]
+                if base_name in wind_variables:
+                    group = wind_variables[base_name]["group"]
                     entry["obs_wspd_col"] = f"obs_wspd_{group}_{level}"
                     entry["obs_wdir_col"] = f"obs_wdir_{group}_{level}"
                     entry["obs_qc_col"] = f"obs_qc_{group}_{level}"
-                    entry["wind_component"] = wind_info["component"]
+                    entry["wind_component"] = wind_variables[base_name]["component"]
                 variable_map[forecast_var] = entry
         else:
-            # Surface variable — no levels
             entry = {
                 "base_name": base_name,
                 "level": None,
@@ -167,13 +135,12 @@ def build_variable_map(config):
                 "unit_conversion": conversion,
                 "needs_dewpoint_conversion": needs_dewpoint,
             }
-            if base_name in WIND_VARIABLES:
-                wind_info = WIND_VARIABLES[base_name]
-                group = wind_info["group"]
+            if base_name in wind_variables:
+                group = wind_variables[base_name]["group"]
                 entry["obs_wspd_col"] = f"obs_wspd_{group}"
                 entry["obs_wdir_col"] = f"obs_wdir_{group}"
                 entry["obs_qc_col"] = f"obs_qc_{group}"
-                entry["wind_component"] = wind_info["component"]
+                entry["wind_component"] = wind_variables[base_name]["component"]
             variable_map[base_name] = entry
 
     return variable_map
@@ -190,7 +157,6 @@ def _build_rename_map(registry, variable_map):
         level = vinfo["level"]
 
         if "obs_wspd_col" in vinfo:
-            # Wind variable: map WSPD, WDIR, and QC columns
             if level is not None:
                 prlc_suffix = f"PRLC{level * 100}"
                 real_wspd = f"{reg['obs_wspd_var']}_{prlc_suffix}"
@@ -204,7 +170,6 @@ def _build_rename_map(registry, variable_map):
             rename_map[real_wdir] = vinfo["obs_wdir_col"]
             rename_map[real_qc] = vinfo["obs_qc_col"]
         else:
-            # Direct variable
             if level is not None:
                 prlc_suffix = f"PRLC{level * 100}"
                 real_obs_col = f"{reg['obs_var']}_{prlc_suffix}"
@@ -219,8 +184,7 @@ def _build_rename_map(registry, variable_map):
 
 def _load_one_dataset(dc, dataset_name, rename_map, time_range):
     """Load and rename observations from a single dataset."""
-    columns = ["LAT", "LON", "OBS_TIMESTAMP"] + list(rename_map.keys())
-    columns = list(dict.fromkeys(columns))  # deduplicate, preserve order
+    columns = list(dict.fromkeys(["LAT", "LON", "OBS_TIMESTAMP"] + list(rename_map.keys())))
 
     ds = dc[dataset_name]
     try:
@@ -238,17 +202,18 @@ def _load_one_dataset(dc, dataset_name, rename_map, time_range):
     return obs_df
 
 
-def load_all_observations(time_range, variable_map):
-    """Load observations from all datasets in DATASET_REGISTRY.
+def load_all_observations(time_range, variable_map, dataset_registry):
+    """Load observations from all datasets in dataset_registry.
 
     For each dataset, determines which user-requested variables it supports,
     builds the real column names, loads from nnja_ai, renames to standardized
-    names, and concatenates all DataFrames.  Datasets are loaded in parallel
+    names, and concatenates all DataFrames. Datasets are loaded in parallel
     using threads since the work is I/O-bound.
 
     Args:
         time_range: (start, end) tuple of pd.Timestamps for time selection.
         variable_map: Output of build_variable_map.
+        dataset_registry: Dataset registry dict from obs config.
 
     Returns:
         pd.DataFrame with LAT, LON, OBS_TIMESTAMP, and standardized
@@ -256,9 +221,8 @@ def load_all_observations(time_range, variable_map):
     """
     dc = nnja_ai.DataCatalog()
 
-    # Pre-compute rename maps and filter to datasets that have matching vars
     tasks = {}
-    for dataset_name, registry in DATASET_REGISTRY.items():
+    for dataset_name, registry in dataset_registry.items():
         rename_map = _build_rename_map(registry, variable_map)
         if rename_map:
             tasks[dataset_name] = rename_map
@@ -278,7 +242,6 @@ def load_all_observations(time_range, variable_map):
         result = pd.concat(all_frames, ignore_index=True)
         logger.info(f"Total observations across all datasets: {len(result)}")
     else:
-        # Build empty DataFrame with expected columns
         std_columns = ["LAT", "LON", "OBS_TIMESTAMP"]
         for vinfo in variable_map.values():
             std_columns.append(vinfo["obs_col"])
@@ -286,8 +249,7 @@ def load_all_observations(time_range, variable_map):
             if "obs_wspd_col" in vinfo:
                 std_columns.append(vinfo["obs_wspd_col"])
                 std_columns.append(vinfo["obs_wdir_col"])
-        std_columns = list(dict.fromkeys(std_columns))
-        result = pd.DataFrame(columns=std_columns)
+        result = pd.DataFrame(columns=list(dict.fromkeys(std_columns)))
         logger.warning("No observations loaded from any dataset")
     return result
 
@@ -306,14 +268,11 @@ def apply_qc_filter(obs_df, variable_map, max_qc_value=2):
         if qc_col not in obs_df.columns:
             continue
 
-        qc_vals = obs_df[qc_col]
-        bad = qc_vals.notna() & (qc_vals > max_qc_value)
+        bad = obs_df[qc_col].notna() & (obs_df[qc_col] > max_qc_value)
         n_rejected = bad.sum()
 
         if "obs_wspd_col" in vinfo:
-            # Wind variable: mask WSPD and WDIR source columns
-            cols_to_mask = [vinfo["obs_wspd_col"], vinfo["obs_wdir_col"]]
-            for col in cols_to_mask:
+            for col in [vinfo["obs_wspd_col"], vinfo["obs_wdir_col"]]:
                 if col in obs_df.columns:
                     if n_rejected > 0:
                         logger.info(f"QC filter: masking {n_rejected} obs in {col} for {forecast_var} (QC > {max_qc_value})")
@@ -364,14 +323,14 @@ def derive_wind_components(obs_df, variable_map):
     return obs_df
 
 
-def convert_obs_units(obs_df, variable_map):
+def convert_obs_units(obs_df, variable_map, unit_conversion_funcs):
     """Apply unit conversions to observation columns as specified in variable map."""
     for forecast_var, vinfo in variable_map.items():
         conversion = vinfo["unit_conversion"]
         if conversion is not None:
             obs_col = vinfo["obs_col"]
             if obs_col in obs_df.columns:
-                obs_df[obs_col] = UNIT_CONVERSIONS[conversion](obs_df[obs_col])
+                obs_df[obs_col] = unit_conversion_funcs[conversion](obs_df[obs_col])
     return obs_df
 
 
@@ -379,8 +338,8 @@ def convert_dewpoint_to_specific_humidity(obs_df, variable_map):
     """Convert dewpoint temperature obs to specific humidity in-place.
 
     For variables with ``needs_dewpoint_conversion``, the obs column contains
-    dewpoint temperature (K).  This function converts it to specific humidity
-    (kg/kg) using the Magnus formula (consistent with MET vx_physics/thermo.cc).
+    dewpoint temperature (K). This function converts it to specific humidity
+    (kg/kg) using the Magnus formula.
 
     Pressure source:
     - Upper-air (level is not None): pressure = level in hPa.
@@ -393,7 +352,6 @@ def convert_dewpoint_to_specific_humidity(obs_df, variable_map):
     if not has_dewpoint_var:
         return obs_df
 
-    # Validate that surface humidity vars have surface pressure available
     sp_col = "obs_surface_pressure"
     for forecast_var, vinfo in variable_map.items():
         if not vinfo.get("needs_dewpoint_conversion"):
@@ -436,7 +394,6 @@ def align_obs_to_forecast_times(obs_df, forecast_valid_times, window):
     """
     aligned = {}
     obs_times = obs_df["OBS_TIMESTAMP"]
-
     for vt in forecast_valid_times:
         vtimestamp = pd.Timestamp(vt, tz="UTC")
         mask = (obs_times >= vtimestamp - window) & (obs_times < vtimestamp + window)
@@ -476,15 +433,7 @@ def _interp_to_obs_locations(fds_time_slice, matched_obs_df):
 
 
 def _compute_metrics_single(forecast_values, obs_values):
-    """Compute verification metrics for a single set of forecast/obs pairs.
-
-    Args:
-        forecast_values: 1-D numpy array of forecast values at obs locations.
-        obs_values: 1-D numpy array of observation values.
-
-    Returns:
-        dict with rmse, mae, bias, count as scalars.
-    """
+    """Compute verification metrics for a single set of forecast/obs pairs."""
     valid = np.isfinite(forecast_values) & np.isfinite(obs_values)
     n = valid.sum()
     if n == 0:
@@ -533,13 +482,11 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
     )
     obs = xr.DataArray(obs_values, dims="locations")
 
-    # Mask locations where any member or the obs is NaN
     valid = forecast.notnull().all("member") & obs.notnull()
     forecast = forecast.where(valid)
     obs = obs.where(valid)
     n_valid = valid.sum().item()
 
-    # Per-member metrics
     diff = forecast - obs
     per_member_vars = {
         "rmse": np.sqrt((diff**2).mean("locations")),
@@ -547,7 +494,6 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
         "bias": diff.mean("locations"),
     }
 
-    # Ensemble mean metrics
     ensmean_diff = forecast.mean("member") - obs
     ensmean_metrics = {
         "rmse_ensmean": float(np.sqrt((ensmean_diff**2).mean("locations"))),
@@ -556,10 +502,9 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
         "count_ensmean": n_valid,
     }
 
-    # Spread: mean across locations of per-location std dev across members
     spread_val = float(forecast.std("member").mean("locations")) if n_valid > 0 else np.nan
 
-    # Fair CRPS: (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
+    # Fair CRPS (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
     if n_valid == 0:
         fcrps_val = np.nan
     else:
@@ -576,7 +521,7 @@ def compute_obs_metrics(forecast_values, obs_values, vtime):
         "fcrps": fcrps_val,
     }
 
-    xds = xr.Dataset({**per_member_vars, **{k: v for k, v in scalar_vars.items()}})
+    xds = xr.Dataset({**per_member_vars, **scalar_vars})
     xds = xds.expand_dims({"time": [vtime]})
     return xds
 
@@ -622,20 +567,146 @@ def _filter_obs_by_subregion(obs_df, bounds, drop_out_of_bounds=True):
 
 
 def create_subregion_masks(subregions):
-    """Create dataset with subregion masks for visualization
-
-    Note:
-        This could be its own workflow, but for now we just spit it out whenever we run the obs workflow.
-    """
-
+    """Create dataset with subregion masks for visualization."""
     xds = xesmf.util.grid_global(1, 1, cf=True, lon1=360)
     for sr_name, sr_bounds in subregions.items():
         xds[sr_name] = _filter_obs_by_subregion(
-            xr.ones_like(xds["lat"]*xds["lon"]).rename({"lon":"LON", "lat": "LAT"}),
+            xr.ones_like(xds["lat"]*xds["lon"]).rename({"lon": "LON", "lat": "LAT"}),
             sr_bounds,
             drop_out_of_bounds=False,
         ).rename({"LON": "longitude", "LAT": "latitude"})
     return xds
+
+
+def _assemble_metric_dataset(metric_data, variable_map):
+    """Assemble per-variable metric lists into an xr.Dataset with level dims.
+
+    Groups variables by base_name, concatenates along time, stacks levels
+    for upper-air variables, and applies postprocessing.
+    """
+    base_groups = {}
+    for varname, vals in metric_data.items():
+        vinfo = variable_map[varname]
+        bn = vinfo["base_name"]
+        level = vinfo["level"]
+        time_concat = xr.concat(vals, dim="time")
+        base_groups.setdefault(bn, {})[level] = time_concat
+
+    data_vars = {}
+    for bn, level_dict in base_groups.items():
+        if None in level_dict:
+            data_vars[bn] = level_dict[None]
+        else:
+            level_arrays = [
+                level_dict[lvl].expand_dims({"level": [lvl]})
+                for lvl in sorted(level_dict.keys())
+            ]
+            data_vars[bn] = xr.concat(level_arrays, dim="level")
+
+    return postprocess(xr.Dataset(data_vars))
+
+
+def _concat_and_sort(datasets, use_mpi):
+    """Flatten MPI-gathered results and concatenate along t0."""
+    if use_mpi:
+        datasets = [xds for sublist in datasets for xds in sublist]
+    return xr.concat(sorted(datasets, key=lambda xds: xds.coords["t0"]), dim="t0")
+
+
+def _write_metric_files(container, output_path, model_type, suffix=""):
+    """Write metric datasets to NetCDF files."""
+    for metric, xds in container.items():
+        fname = f"{output_path}/{metric}.convobs.{model_type}{suffix}.nc"
+        xds.to_netcdf(fname)
+        logger.info(f"Stored result: {fname}")
+
+
+def _compute_metrics_for_obs(fds_time_slice, matched_obs, variable_map, vtime, n_members, is_ensemble):
+    """Interpolate forecast to obs locations and compute metrics for all variables.
+
+    Returns:
+        Tuple of (base_results, ensemble_results) where each is a dict
+        mapping metric_name -> {varname: xr.DataArray}.
+        ensemble_results is empty dict if not is_ensemble.
+    """
+    interpolated = _interp_to_obs_locations(fds_time_slice, matched_obs)
+
+    base_results = {m: {} for m in BASE_METRICS}
+    ensemble_results = {m: {} for m in ENSEMBLE_METRICS} if is_ensemble else {}
+
+    for varname, vinfo in variable_map.items():
+        fvals = interpolated[vinfo["base_name"]]
+        if "level" in fvals.dims:
+            fvals = fvals.sel(level=vinfo["level"])
+
+        result = compute_obs_metrics(
+            fvals.values,
+            matched_obs[vinfo["obs_col"]].values,
+            vtime,
+        )
+        for metric in BASE_METRICS:
+            base_results[metric][varname] = result[metric]
+        if is_ensemble:
+            for metric in ENSEMBLE_METRICS:
+                ensemble_results[metric][varname] = result[metric]
+
+    return base_results, ensemble_results
+
+
+def _make_empty_results(forecast_var_names, n_members, is_ensemble, vtime):
+    """Create NaN metric results for all variables (no observations case)."""
+    if is_ensemble:
+        empty_fvals = np.full((n_members, 1), np.nan)
+    else:
+        empty_fvals = np.array([np.nan])
+    empty_result = compute_obs_metrics(empty_fvals, np.array([np.nan]), vtime)
+
+    base_results = {m: {} for m in BASE_METRICS}
+    ensemble_results = {m: {} for m in ENSEMBLE_METRICS} if is_ensemble else {}
+    for varname in forecast_var_names:
+        for metric in BASE_METRICS:
+            base_results[metric][varname] = empty_result[metric]
+        if is_ensemble:
+            for metric in ENSEMBLE_METRICS:
+                ensemble_results[metric][varname] = empty_result[metric]
+    return base_results, ensemble_results
+
+
+def _load_forecast(config, t0, member, levels):
+    """Load a single forecast member."""
+    st0 = t0.strftime("%Y-%m-%dT%H")
+    model_type = config.get("model_type")
+    forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
+
+    if config.get("from_anemoi", True):
+        fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+        if config.get("n_members", 1) > 1:
+            fname = fname.replace(".nc", f".member{member:03d}.nc")
+        return open_anemoi_inference_dataset(
+            fname,
+            model_type=model_type,
+            lam_index=config.get("lam_index", None),
+            trim_edge=config.get("trim_forecast_edge", None),
+            vars_of_interest=config.get("vars_of_interest"),
+            levels=levels,
+            load=True,
+            lcc_info=config.get("lcc_info", None),
+            horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
+            reshape_cell_to_2d=True,
+            rename_to_longnames=True,
+        )
+    else:
+        return open_forecast_zarr_dataset(
+            config["forecast_path"],
+            t0=t0,
+            trim_edge=config.get("trim_forecast_edge", None),
+            vars_of_interest=config.get("vars_of_interest"),
+            levels=levels,
+            load=True,
+            lcc_info=config.get("lcc_info", None),
+            reshape_cell_to_2d=True,
+            rename_to_longnames=True,
+        )
 
 
 def main(config):
@@ -643,38 +714,22 @@ def main(config):
 
     See ``eagle-tools obs-metrics --help`` or cli.py for help.
     """
-
     topo = config["topo"]
-
-    # Build variable map
-    variable_map = build_variable_map(config)
-    forecast_var_names = list(variable_map.keys())
-    # Extract unique base variable names and levels for loading the forecast
-    base_var_names = list({vinfo["base_name"] for vinfo in variable_map.values()})
-    levels = sorted({v["level"] for v in variable_map.values() if v["level"] is not None})
-    logger.info(f"Variables to verify: {forecast_var_names}")
+    obs_config = _load_obs_config()
+    dataset_registry = obs_config["dataset_registry"]
+    gravity = obs_config["gravity"]
+    unit_conversion_funcs = _get_unit_conversion_funcs(gravity)
 
     # Config options
     model_type = config.get("model_type")
-    lam_index = config.get("lam_index", None)
     lead_time = config["lead_time"]
     temporal_window = pd.Timedelta(config.get("temporal_window", "30min"))
     max_qc_value = config.get("max_qc_value", 2)
     n_members = config.get("n_members", 1)
     is_ensemble = n_members > 1
+    user_levels = config.get("levels", None)
 
-    # Parse subregions
-    subregions = _parse_subregions(config)
-    if subregions:
-        logger.info(f"Subregions: {list(subregions.keys())}")
-        if topo.is_root:
-            srds = create_subregion_masks(subregions)
-            fname = f"{config['output_path']}/subregions.nc"
-            srds.to_netcdf(fname)
-            logger.info(f"Stored subregion masks at {fname}")
-
-    # does the user want to evaluate on a different grid?
-    # this doesn't include regridding the nested -> global resolution
+    # Does the user want to evaluate on a different grid?
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
     do_any_regridding = (target_regrid_kwargs is not None) or \
@@ -688,24 +743,37 @@ def main(config):
             horizontal_regrid_kwargs=forecast_regrid_kwargs,
         )
 
+    # Parse subregions
+    subregions = _parse_subregions(config)
+    if subregions:
+        logger.info(f"Subregions: {list(subregions.keys())}")
+        if topo.is_root:
+            srds = create_subregion_masks(subregions)
+            fname = f"{config['output_path']}/subregions.nc"
+            srds.to_netcdf(fname)
+            logger.info(f"Stored subregion masks at {fname}")
+
     # Generate initialization dates
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
     n_dates = len(dates)
     n_batches = int(np.ceil(n_dates / topo.size))
 
-    container = {"rmse": [], "mae": [], "bias": [], "count": []}
-    subregion_containers = {name: {"rmse": [], "mae": [], "bias": [], "count": []} for name in subregions}
+    # Set up region names: "global" + any subregions
+    region_names = ["global"] + list(subregions.keys())
 
-    ENSEMBLE_METRICS = ["rmse_ensmean", "mae_ensmean", "bias_ensmean", "count_ensmean", "spread", "fcrps"]
-    if is_ensemble:
-        ensemble_container = {m: [] for m in ENSEMBLE_METRICS}
-        ensemble_subregion_containers = {name: {m: [] for m in ENSEMBLE_METRICS} for name in subregions}
+    # Initialize containers: {region: {metric: []}}
+    base_containers = {rn: {m: [] for m in BASE_METRICS} for rn in region_names}
+    ensemble_containers = {rn: {m: [] for m in ENSEMBLE_METRICS} for rn in region_names} if is_ensemble else {}
 
-    logger.info(f"Observation Verification")
-    logger.info(f"Datasets: {list(DATASET_REGISTRY.keys())}")
+    logger.info("Observation Verification")
+    logger.info(f"Datasets: {list(dataset_registry.keys())}")
     logger.info(f"Temporal window: +/- {temporal_window}")
     logger.info(f"Max QC value: {max_qc_value}")
     logger.info(f"Initial Conditions:\n{dates}")
+
+    # Track whether we've discovered levels yet
+    levels = user_levels
+    variable_map = None
 
     for batch_idx in range(n_batches):
 
@@ -722,44 +790,23 @@ def main(config):
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
 
-        # Load forecast using base variable names and levels
-        member_fds_list = []
-        for member in range(n_members):
-            if config.get("from_anemoi", True):
-                fname = f"{config['forecast_path']}/{st0}.{lead_time}h.nc"
-                if is_ensemble:
-                    fname = fname.replace(".nc", f".member{member:03d}.nc")
-                member_fds = open_anemoi_inference_dataset(
-                    fname,
-                    model_type=model_type,
-                    lam_index=lam_index,
-                    trim_edge=config.get("trim_forecast_edge", None),
-                    vars_of_interest=config.get("vars_of_interest"),
-                    levels=levels,
-                    load=True,
-                    lcc_info=config.get("lcc_info", None),
-                    horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
-                    reshape_cell_to_2d=True,
-                    rename_to_longnames=True,
-                )
-            else:
-                member_fds = open_forecast_zarr_dataset(
-                    config["forecast_path"],
-                    t0=t0,
-                    trim_edge=config.get("trim_forecast_edge", None),
-                    vars_of_interest=config.get("vars_of_interest"),
-                    levels=levels,
-                    load=True,
-                    lcc_info=config.get("lcc_info", None),
-                    reshape_cell_to_2d=True,
-                    rename_to_longnames=True,
-                )
-            member_fds_list.append(member_fds)
+        # Load forecast
+        member_fds_list = [_load_forecast(config, t0, member, levels) for member in range(n_members)]
 
         if is_ensemble:
             fds = xr.concat(member_fds_list, dim="member")
         else:
             fds = member_fds_list[0]
+
+        # Discover levels from the first forecast if not user-specified
+        if variable_map is None:
+            if levels is None and "level" in fds.dims:
+                levels = sorted(int(lvl) for lvl in fds["level"].values)
+                logger.info(f"Discovered levels from forecast: {levels}")
+            variable_map = build_variable_map(config, levels, obs_config=obs_config)
+            forecast_var_names = list(variable_map.keys())
+            base_var_names = list({vinfo["base_name"] for vinfo in variable_map.values()})
+            logger.info(f"Variables to verify: {forecast_var_names}")
 
         # Get forecast valid times
         forecast_valid_times = fds["time"].values
@@ -767,11 +814,11 @@ def main(config):
         # Load observations for the full valid time range (padded by window)
         time_start = pd.Timestamp(forecast_valid_times[0], tz="UTC") - temporal_window - pd.Timedelta("24h")
         time_end = pd.Timestamp(forecast_valid_times[-1], tz="UTC") + temporal_window + pd.Timedelta("24h")
-        obs_df = load_all_observations((time_start, time_end), variable_map)
+        obs_df = load_all_observations((time_start, time_end), variable_map, dataset_registry)
 
         # QC filter and unit conversion
         obs_df = apply_qc_filter(obs_df, variable_map, max_qc_value=max_qc_value)
-        obs_df = convert_obs_units(obs_df, variable_map)
+        obs_df = convert_obs_units(obs_df, variable_map, unit_conversion_funcs)
         obs_df = convert_dewpoint_to_specific_humidity(obs_df, variable_map)
         obs_df = derive_wind_components(obs_df, variable_map)
 
@@ -781,272 +828,95 @@ def main(config):
         # Align observations to forecast valid times
         aligned = align_obs_to_forecast_times(obs_df, forecast_valid_times, temporal_window)
 
-        # Compute metrics per forecast valid time
-        container_per_ic = {metric: {varname: [] for varname in forecast_var_names} for metric in container.keys()}
-        subregion_container_per_ic = {
-            sr_name: {metric: {varname: [] for varname in forecast_var_names} for metric in container.keys()}
-            for sr_name in subregions
-        }
-        if is_ensemble:
-            ensemble_container_per_ic = {metric: {varname: [] for varname in forecast_var_names} for metric in ENSEMBLE_METRICS}
-            ensemble_subregion_container_per_ic = {
-                sr_name: {metric: {varname: [] for varname in forecast_var_names} for metric in ENSEMBLE_METRICS}
-                for sr_name in subregions
-            }
+        # Accumulate metrics per forecast valid time, per region
+        # {region: {metric: {varname: [DataArray, ...]}}}
+        per_ic_base = {rn: {m: {v: [] for v in forecast_var_names} for m in BASE_METRICS} for rn in region_names}
+        per_ic_ens = {rn: {m: {v: [] for v in forecast_var_names} for m in ENSEMBLE_METRICS} for rn in region_names} if is_ensemble else {}
 
         for vtime in forecast_valid_times:
             vtimestamp = pd.Timestamp(vtime, tz="UTC")
 
-            # Handle case where we don't have obs
             if vtimestamp not in aligned:
-                if is_ensemble:
-                    empty_fvals = np.full((n_members, 1), np.nan)
-                else:
-                    empty_fvals = np.array([np.nan])
-                empty_result = compute_obs_metrics(empty_fvals, np.array([np.nan]), vtime)
-                for varname in forecast_var_names:
-                    for metric in container.keys():
-                        container_per_ic[metric][varname].append(empty_result[metric])
-                        for sr_name in subregions:
-                            subregion_container_per_ic[sr_name][metric][varname].append(empty_result[metric])
+                empty_base, empty_ens = _make_empty_results(forecast_var_names, n_members, is_ensemble, vtime)
+                for rn in region_names:
+                    for metric in BASE_METRICS:
+                        for varname in forecast_var_names:
+                            per_ic_base[rn][metric][varname].append(empty_base[metric][varname])
                     if is_ensemble:
                         for metric in ENSEMBLE_METRICS:
-                            ensemble_container_per_ic[metric][varname].append(empty_result[metric])
-                            for sr_name in subregions:
-                                ensemble_subregion_container_per_ic[sr_name][metric][varname].append(empty_result[metric])
+                            for varname in forecast_var_names:
+                                per_ic_ens[rn][metric][varname].append(empty_ens[metric][varname])
                 continue
 
             matched_obs = aligned[vtimestamp]
 
-            # Interp to obs locations and compute metrics
-            interpolated = _interp_to_obs_locations(fds.sel(time=vtime), matched_obs)
-
-            for varname, vinfo in variable_map.items():
-                fvals = interpolated[vinfo["base_name"]]
-                if "level" in fvals.dims:
-                    fvals = fvals.sel(level=vinfo["level"])
-
-                result = compute_obs_metrics(
-                    fvals.values,
-                    matched_obs[vinfo["obs_col"]].values,
-                    vtime,
-                )
-                for metric in container.keys():
-                    container_per_ic[metric][varname].append(result[metric])
-                if is_ensemble:
-                    for metric in ENSEMBLE_METRICS:
-                        ensemble_container_per_ic[metric][varname].append(result[metric])
+            # Global metrics
+            base_res, ens_res = _compute_metrics_for_obs(
+                fds.sel(time=vtime), matched_obs, variable_map, vtime, n_members, is_ensemble,
+            )
+            for metric in BASE_METRICS:
+                for varname in forecast_var_names:
+                    per_ic_base["global"][metric][varname].append(base_res[metric][varname])
+            if is_ensemble:
+                for metric in ENSEMBLE_METRICS:
+                    for varname in forecast_var_names:
+                        per_ic_ens["global"][metric][varname].append(ens_res[metric][varname])
 
             # Subregion metrics
             for sr_name, sr_bounds in subregions.items():
                 sr_obs = _filter_obs_by_subregion(matched_obs, sr_bounds)
                 if len(sr_obs) == 0:
-                    if is_ensemble:
-                        empty_fvals = np.full((n_members, 1), np.nan)
-                    else:
-                        empty_fvals = np.array([np.nan])
-                    sr_empty_result = compute_obs_metrics(empty_fvals, np.array([np.nan]), vtime)
+                    empty_base, empty_ens = _make_empty_results(forecast_var_names, n_members, is_ensemble, vtime)
+                    sr_base_res, sr_ens_res = empty_base, empty_ens
+                else:
+                    sr_base_res, sr_ens_res = _compute_metrics_for_obs(
+                        fds.sel(time=vtime), sr_obs, variable_map, vtime, n_members, is_ensemble,
+                    )
+                for metric in BASE_METRICS:
                     for varname in forecast_var_names:
-                        for metric in container.keys():
-                            subregion_container_per_ic[sr_name][metric][varname].append(sr_empty_result[metric])
-                        if is_ensemble:
-                            for metric in ENSEMBLE_METRICS:
-                                ensemble_subregion_container_per_ic[sr_name][metric][varname].append(sr_empty_result[metric])
-                else:
-                    sr_interpolated = _interp_to_obs_locations(fds.sel(time=vtime), sr_obs)
-                    for varname, vinfo in variable_map.items():
-                        fvals = sr_interpolated[vinfo["base_name"]]
-                        if "level" in fvals.dims:
-                            fvals = fvals.sel(level=vinfo["level"])
-                        sr_result = compute_obs_metrics(
-                            fvals.values,
-                            sr_obs[vinfo["obs_col"]].values,
-                            vtime,
-                        )
-                        for metric in container.keys():
-                            subregion_container_per_ic[sr_name][metric][varname].append(sr_result[metric])
-                        if is_ensemble:
-                            for metric in ENSEMBLE_METRICS:
-                                ensemble_subregion_container_per_ic[sr_name][metric][varname].append(sr_result[metric])
+                        per_ic_base[sr_name][metric][varname].append(sr_base_res[metric][varname])
+                if is_ensemble:
+                    for metric in ENSEMBLE_METRICS:
+                        for varname in forecast_var_names:
+                            per_ic_ens[sr_name][metric][varname].append(sr_ens_res[metric][varname])
 
-        # Assemble into xr.Dataset, grouping upper-air variables by base
-        # name with a level dimension
-        for metric, thedata in container_per_ic.items():
-            base_groups = {}
-            for varname, vals in thedata.items():
-                vinfo = variable_map[varname]
-                bn = vinfo["base_name"]
-                level = vinfo["level"]
-                time_concat = xr.concat(vals, dim="time")
-                if bn not in base_groups:
-                    base_groups[bn] = {}
-                base_groups[bn][level] = time_concat
-
-            data_vars = {}
-            for bn, level_dict in base_groups.items():
-                if None in level_dict:
-                    # Surface variable — no level dimension
-                    data_vars[bn] = level_dict[None]
-                else:
-                    # Upper-air variable — stack levels
-                    level_arrays = []
-                    for lvl in sorted(level_dict.keys()):
-                        arr = level_dict[lvl].expand_dims({"level": [lvl]})
-                        level_arrays.append(arr)
-                    data_vars[bn] = xr.concat(level_arrays, dim="level")
-
-            this_metric_ds = postprocess(xr.Dataset(data_vars))
-            container[metric].append(this_metric_ds)
-
-        # Assemble subregion metrics
-        for sr_name, sr_cpi in subregion_container_per_ic.items():
-            for metric, thedata in sr_cpi.items():
-                base_groups = {}
-                for varname, vals in thedata.items():
-                    vinfo = variable_map[varname]
-                    bn = vinfo["base_name"]
-                    level = vinfo["level"]
-                    time_concat = xr.concat(vals, dim="time")
-                    if bn not in base_groups:
-                        base_groups[bn] = {}
-                    base_groups[bn][level] = time_concat
-
-                data_vars = {}
-                for bn, level_dict in base_groups.items():
-                    if None in level_dict:
-                        data_vars[bn] = level_dict[None]
-                    else:
-                        level_arrays = []
-                        for lvl in sorted(level_dict.keys()):
-                            arr = level_dict[lvl].expand_dims({"level": [lvl]})
-                            level_arrays.append(arr)
-                        data_vars[bn] = xr.concat(level_arrays, dim="level")
-
-                this_metric_ds = postprocess(xr.Dataset(data_vars))
-                subregion_containers[sr_name][metric].append(this_metric_ds)
-
-        # Assemble ensemble metrics
-        if is_ensemble:
-            for metric, thedata in ensemble_container_per_ic.items():
-                base_groups = {}
-                for varname, vals in thedata.items():
-                    vinfo = variable_map[varname]
-                    bn = vinfo["base_name"]
-                    level = vinfo["level"]
-                    time_concat = xr.concat(vals, dim="time")
-                    if bn not in base_groups:
-                        base_groups[bn] = {}
-                    base_groups[bn][level] = time_concat
-
-                data_vars = {}
-                for bn, level_dict in base_groups.items():
-                    if None in level_dict:
-                        data_vars[bn] = level_dict[None]
-                    else:
-                        level_arrays = []
-                        for lvl in sorted(level_dict.keys()):
-                            arr = level_dict[lvl].expand_dims({"level": [lvl]})
-                            level_arrays.append(arr)
-                        data_vars[bn] = xr.concat(level_arrays, dim="level")
-
-                this_metric_ds = postprocess(xr.Dataset(data_vars))
-                ensemble_container[metric].append(this_metric_ds)
-
-            # Assemble ensemble subregion metrics
-            for sr_name, sr_cpi in ensemble_subregion_container_per_ic.items():
-                for metric, thedata in sr_cpi.items():
-                    base_groups = {}
-                    for varname, vals in thedata.items():
-                        vinfo = variable_map[varname]
-                        bn = vinfo["base_name"]
-                        level = vinfo["level"]
-                        time_concat = xr.concat(vals, dim="time")
-                        if bn not in base_groups:
-                            base_groups[bn] = {}
-                        base_groups[bn][level] = time_concat
-
-                    data_vars = {}
-                    for bn, level_dict in base_groups.items():
-                        if None in level_dict:
-                            data_vars[bn] = level_dict[None]
-                        else:
-                            level_arrays = []
-                            for lvl in sorted(level_dict.keys()):
-                                arr = level_dict[lvl].expand_dims({"level": [lvl]})
-                                level_arrays.append(arr)
-                            data_vars[bn] = xr.concat(level_arrays, dim="level")
-
-                    this_metric_ds = postprocess(xr.Dataset(data_vars))
-                    ensemble_subregion_containers[sr_name][metric].append(this_metric_ds)
+        # Assemble into xr.Datasets
+        for rn in region_names:
+            for metric, thedata in per_ic_base[rn].items():
+                base_containers[rn][metric].append(_assemble_metric_dataset(thedata, variable_map))
+            if is_ensemble:
+                for metric, thedata in per_ic_ens[rn].items():
+                    ensemble_containers[rn][metric].append(_assemble_metric_dataset(thedata, variable_map))
 
         logger.info(f"Done with {st0}")
 
     logger.info("Done Computing Observation Verification Metrics")
 
+    # Gather results on root process
     logger.info("Gathering Results on Root Process")
-    for name in container.keys():
-        container[name] = topo.gather(container[name])
-    for sr_name in subregions:
-        for name in subregion_containers[sr_name].keys():
-            subregion_containers[sr_name][name] = topo.gather(subregion_containers[sr_name][name])
-    if is_ensemble:
-        for name in ensemble_container.keys():
-            ensemble_container[name] = topo.gather(ensemble_container[name])
-        for sr_name in subregions:
-            for name in ensemble_subregion_containers[sr_name].keys():
-                ensemble_subregion_containers[sr_name][name] = topo.gather(ensemble_subregion_containers[sr_name][name])
+    for rn in region_names:
+        for metric in BASE_METRICS:
+            base_containers[rn][metric] = topo.gather(base_containers[rn][metric])
+        if is_ensemble:
+            for metric in ENSEMBLE_METRICS:
+                ensemble_containers[rn][metric] = topo.gather(ensemble_containers[rn][metric])
 
     if topo.is_root:
-        for name in container:
-            c = container[name]
-            if config["use_mpi"]:
-                c = [xds for sublist in c for xds in sublist]
-            c = sorted(c, key=lambda xds: xds.coords["t0"])
-            container[name] = xr.concat(c, dim="t0")
+        output_path = config["output_path"]
+        use_mpi = config["use_mpi"]
 
-        for metric, xds in container.items():
-            fname = f"{config['output_path']}/{metric}.convobs.{model_type}.nc"
-            xds.to_netcdf(fname)
-            logger.info(f"Stored result: {fname}")
+        for rn in region_names:
+            suffix = f".{rn}" if rn != "global" else ""
 
-        for sr_name, sr_container in subregion_containers.items():
-            for name in sr_container:
-                c = sr_container[name]
-                if config["use_mpi"]:
-                    c = [xds for sublist in c for xds in sublist]
-                c = sorted(c, key=lambda xds: xds.coords["t0"])
-                sr_container[name] = xr.concat(c, dim="t0")
+            # Concat and sort base metrics
+            for metric in BASE_METRICS:
+                base_containers[rn][metric] = _concat_and_sort(base_containers[rn][metric], use_mpi)
+            _write_metric_files(base_containers[rn], output_path, model_type, suffix)
 
-            for metric, xds in sr_container.items():
-                fname = f"{config['output_path']}/{metric}.convobs.{model_type}.{sr_name}.nc"
-                xds.to_netcdf(fname)
-                logger.info(f"Stored result: {fname}")
-
-        # Write ensemble metric files
-        if is_ensemble:
-            for name in ensemble_container:
-                c = ensemble_container[name]
-                if config["use_mpi"]:
-                    c = [xds for sublist in c for xds in sublist]
-                c = sorted(c, key=lambda xds: xds.coords["t0"])
-                ensemble_container[name] = xr.concat(c, dim="t0")
-
-            for metric, xds in ensemble_container.items():
-                fname = f"{config['output_path']}/{metric}.convobs.{model_type}.nc"
-                xds.to_netcdf(fname)
-                logger.info(f"Stored result: {fname}")
-
-            for sr_name, sr_container in ensemble_subregion_containers.items():
-                for name in sr_container:
-                    c = sr_container[name]
-                    if config["use_mpi"]:
-                        c = [xds for sublist in c for xds in sublist]
-                    c = sorted(c, key=lambda xds: xds.coords["t0"])
-                    sr_container[name] = xr.concat(c, dim="t0")
-
-                for metric, xds in sr_container.items():
-                    fname = f"{config['output_path']}/{metric}.convobs.{model_type}.{sr_name}.nc"
-                    xds.to_netcdf(fname)
-                    logger.info(f"Stored result: {fname}")
+            # Concat and sort ensemble metrics
+            if is_ensemble:
+                for metric in ENSEMBLE_METRICS:
+                    ensemble_containers[rn][metric] = _concat_and_sort(ensemble_containers[rn][metric], use_mpi)
+                _write_metric_files(ensemble_containers[rn], output_path, model_type, suffix)
 
         logger.info("Done Storing Observation Verification Metrics")

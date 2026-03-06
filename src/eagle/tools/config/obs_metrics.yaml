@@ -1,0 +1,113 @@
+gravity: 9.80665
+
+unit_conversions:
+  gp_to_gph: "gp_to_gph"
+
+dataset_registry:
+  conv-adpupa-NC002001:
+    temperature:
+      obs_var: TMDB
+      obs_qc_var: QMAT
+    geopotential_height:
+      obs_var: GP10
+      obs_qc_var: QMGP
+      unit_conversion: gp_to_gph
+    zonal_wind:
+      obs_wspd_var: WSPD
+      obs_wdir_var: WDIR
+      obs_qc_var: QMWN
+    meridional_wind:
+      obs_wspd_var: WSPD
+      obs_wdir_var: WDIR
+      obs_qc_var: QMWN
+    specific_humidity:
+      obs_var: TMDP
+      obs_qc_var: QMDD
+      needs_dewpoint_conversion: true
+
+  conv-adpsfc-NC000001:
+    2m_temperature:
+      obs_var: TMPSQ1.TMDB
+      obs_qc_var: TMPSQ1.QMAT
+    surface_pressure:
+      obs_var: PRSSQ1.PRES
+      obs_qc_var: PRSSQ1.QMPR
+    10m_zonal_wind:
+      obs_wspd_var: WNDSQ1.WSPD
+      obs_wdir_var: WNDSQ1.WDIR
+      obs_qc_var: WNDSQ1.QMWN
+    10m_meridional_wind:
+      obs_wspd_var: WNDSQ1.WSPD
+      obs_wdir_var: WNDSQ1.WDIR
+      obs_qc_var: WNDSQ1.QMWN
+    2m_specific_humidity:
+      obs_var: TMPSQ1.TMDP
+      obs_qc_var: TMPSQ1.QMDD
+      needs_dewpoint_conversion: true
+
+  conv-adpsfc-NC000002:
+    2m_temperature:
+      obs_var: TMPSQ1.TMDB
+      obs_qc_var: TMPSQ1.QMAT
+    surface_pressure:
+      obs_var: PRSSQ1.PRES
+      obs_qc_var: PRSSQ1.QMPR
+    10m_zonal_wind:
+      obs_wspd_var: WNDSQ1.WSPD
+      obs_wdir_var: WNDSQ1.WDIR
+      obs_qc_var: WNDSQ1.QMWN
+    10m_meridional_wind:
+      obs_wspd_var: WNDSQ1.WSPD
+      obs_wdir_var: WNDSQ1.WDIR
+      obs_qc_var: WNDSQ1.QMWN
+    2m_specific_humidity:
+      obs_var: TMPSQ1.TMDP
+      obs_qc_var: TMPSQ1.QMDD
+      needs_dewpoint_conversion: true
+
+  conv-adpsfc-NC000007:
+    2m_temperature:
+      obs_var: MTRTMP.TMDB
+      obs_qc_var: MTRTMP.QMAT
+    10m_zonal_wind:
+      obs_wspd_var: MTRWND.WSPD
+      obs_wdir_var: MTRWND.WDIR
+      obs_qc_var: MTRWND.QMWN
+    10m_meridional_wind:
+      obs_wspd_var: MTRWND.WSPD
+      obs_wdir_var: MTRWND.WDIR
+      obs_qc_var: MTRWND.QMWN
+
+  conv-adpsfc-NC000101:
+    2m_temperature:
+      obs_var: TEMHUMDA.TMDB
+      obs_qc_var: QMAT
+    surface_pressure:
+      obs_var: PRESDATA.PRESSQ03.PRES
+      obs_qc_var: QMPR
+    10m_zonal_wind:
+      obs_wspd_var: BSYWND1.WSPD
+      obs_wdir_var: BSYWND1.WDIR
+      obs_qc_var: QMWN
+    10m_meridional_wind:
+      obs_wspd_var: BSYWND1.WSPD
+      obs_wdir_var: BSYWND1.WDIR
+      obs_qc_var: QMWN
+    2m_specific_humidity:
+      obs_var: TEMHUMDA.TMDP
+      obs_qc_var: QMDD
+      needs_dewpoint_conversion: true
+
+wind_variables:
+  zonal_wind:
+    group: uv
+    component: zonal_wind
+  meridional_wind:
+    group: uv
+    component: meridional_wind
+  10m_zonal_wind:
+    group: u10m_meridional_wind
+    component: zonal_wind
+  10m_meridional_wind:
+    group: u10m_meridional_wind
+    component: meridional_wind

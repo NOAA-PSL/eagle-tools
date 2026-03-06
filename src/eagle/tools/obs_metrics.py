@@ -110,6 +110,13 @@ def build_variable_map(config, levels, obs_config=None):
         upper_air = _is_upper_air(base_name, dataset_registry)
         is_derived = base_name in derived_variables
 
+        # For derived wind speed variables, obs_col points to the WSPD column
+        # from the corresponding wind group (already loaded by wind components)
+        if is_derived:
+            components = derived_variables[base_name]["forecast_components"]
+            u_name = components["u"]
+            group = wind_variables[u_name]["group"]
+
         if upper_air and levels:
             for level in levels:
                 forecast_var = f"{base_name}_{level}"
@@ -122,13 +129,15 @@ def build_variable_map(config, levels, obs_config=None):
                     "needs_dewpoint_conversion": needs_dewpoint,
                 }
                 if base_name in wind_variables:
-                    group = wind_variables[base_name]["group"]
-                    entry["obs_wspd_col"] = f"obs_wspd_{group}_{level}"
-                    entry["obs_wdir_col"] = f"obs_wdir_{group}_{level}"
-                    entry["obs_qc_col"] = f"obs_qc_{group}_{level}"
+                    wgroup = wind_variables[base_name]["group"]
+                    entry["obs_wspd_col"] = f"obs_wspd_{wgroup}_{level}"
+                    entry["obs_wdir_col"] = f"obs_wdir_{wgroup}_{level}"
+                    entry["obs_qc_col"] = f"obs_qc_{wgroup}_{level}"
                     entry["wind_component"] = wind_variables[base_name]["component"]
                 if is_derived:
-                    entry["forecast_components"] = derived_variables[base_name]["forecast_components"]
+                    entry["forecast_components"] = components
+                    entry["obs_col"] = f"obs_wspd_{group}_{level}"
+                    entry["obs_qc_col"] = f"obs_qc_{group}_{level}"
                 variable_map[forecast_var] = entry
         else:
             entry = {
@@ -140,13 +149,15 @@ def build_variable_map(config, levels, obs_config=None):
                 "needs_dewpoint_conversion": needs_dewpoint,
             }
             if base_name in wind_variables:
-                group = wind_variables[base_name]["group"]
-                entry["obs_wspd_col"] = f"obs_wspd_{group}"
-                entry["obs_wdir_col"] = f"obs_wdir_{group}"
-                entry["obs_qc_col"] = f"obs_qc_{group}"
+                wgroup = wind_variables[base_name]["group"]
+                entry["obs_wspd_col"] = f"obs_wspd_{wgroup}"
+                entry["obs_wdir_col"] = f"obs_wdir_{wgroup}"
+                entry["obs_qc_col"] = f"obs_qc_{wgroup}"
                 entry["wind_component"] = wind_variables[base_name]["component"]
             if is_derived:
-                entry["forecast_components"] = derived_variables[base_name]["forecast_components"]
+                entry["forecast_components"] = components
+                entry["obs_col"] = f"obs_wspd_{group}"
+                entry["obs_qc_col"] = f"obs_qc_{group}"
             variable_map[base_name] = entry
 
     return variable_map
@@ -156,6 +167,9 @@ def _build_rename_map(registry, variable_map):
     """Build real-col -> standardized-col rename map for one dataset."""
     rename_map = {}
     for forecast_var, vinfo in variable_map.items():
+        # Derived variables reuse obs columns already loaded by their components
+        if "forecast_components" in vinfo:
+            continue
         base_name = vinfo["base_name"]
         if base_name not in registry:
             continue

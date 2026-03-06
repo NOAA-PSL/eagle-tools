@@ -128,7 +128,7 @@ def fcrps(target, ensemble, weights=1.):
     n_members = ensemble.sizes["member"]
     dims = tuple(d for d in ensemble.dims if d not in ("time", "level", "member"))
     for key in ensemble.data_vars:
-        abs_err = np.abs(ensemble[key] - target[key]).mean("member")
+        abs_err = np.abs(ensemble[key] - target[key].squeeze("member")).mean("member")
         pairwise = np.abs(
             ensemble[key] - ensemble[key].rename({"member": "_member"})
         ).mean(("member", "_member"))

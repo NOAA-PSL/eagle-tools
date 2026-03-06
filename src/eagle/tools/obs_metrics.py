@@ -15,6 +15,8 @@ import pandas as pd
 import xesmf
 import nnja_ai
 
+from ufs2arco.transforms.horizontal_regrid import maybe_make_dataset_c_contiguous
+
 from eagle.tools.data import open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.metrics import postprocess
 from eagle.tools.nested import prepare_regrid_target_mask
@@ -456,6 +458,7 @@ def _interp_to_obs_locations(fds_time_slice, matched_obs_df):
         xr.Dataset interpolated to observation locations (dim ``locations``).
     """
     src = fds_time_slice.rename({"latitude": "lat", "longitude": "lon"})
+    src = maybe_make_dataset_c_contiguous(src)
 
     obs_loc = xr.Dataset({
         "lat": xr.DataArray(matched_obs_df["LAT"].values, dims=("locations",)),

@@ -407,6 +407,37 @@ def prewxvx(config_file):
     config = setup(config_file, "prewxvx")
     main(config)
 
+prewxvx.help = """Postprocess forecast files for wxvx.
+
+    \b
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    \b
+    Config Args:
+        forecast_path (str): The directory path containing the forecast datasets.
+        \b
+        output_path (str): The directory where output NetCDF files will be saved.
+        \b
+        model_type (str): The model type identifier.
+        \b
+        lead_time (int): Length of forecast in hours.
+        \b
+        start_date (str): The first initial condition date to process.
+        \b
+        end_date (str): The last initial condition date to process.
+        \b
+        freq (str): Frequency string for the date range (e.g., "6h").
+        \b
+        from_anemoi (bool, optional): If True, opens forecasts using the
+            anemoi inference dataset format. Defaults to True.
+        \b
+        chunks (dict, optional): A dictionary mapping dimension names to chunk
+            sizes (e.g., ``{time: 1}``). When provided, the output dataset is
+            chunked accordingly before writing to NetCDF. Dimensions not listed
+            are left unchunked. Defaults to None (no chunking).
+    """
+
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))

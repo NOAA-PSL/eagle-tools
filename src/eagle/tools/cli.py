@@ -68,6 +68,10 @@ inference.help = """Runs Anemoi inference pipeline over many initialization date
 
         \b
         base_seed (int, optional): base seed for running a stochastic model
+        \b
+        overwrite_existing (bool, optional): If True, re-run inference even when
+            the output NetCDF file already exists. If False, skip initialization
+            dates whose output files are already present. Defaults to False.
     """
 
 

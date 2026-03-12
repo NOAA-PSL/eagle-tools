@@ -149,7 +149,7 @@ def run_forecast(
         main_config=main_config,
         member=member,
     )
-    if not os.path.isfile(output_filename):
+    if main_config.get("overwrite_existing", False) or not os.path.isfile(output_filename):
         run_config = RunConfiguration.load(anemoi_config)
         runner = create_runner(run_config)
         if preloaded_model is not None:

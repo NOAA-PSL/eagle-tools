@@ -564,6 +564,18 @@ def _parse_subregions(config):
     return subregions
 
 
+def _subregion_mask(obs_df, bounds):
+    """Return a boolean numpy array selecting observations within a geographic subregion."""
+    lat_min, lat_max = bounds["latitude"]
+    lon_min, lon_max = bounds["longitude"]
+    lat_mask = (obs_df["LAT"] >= lat_min) & (obs_df["LAT"] <= lat_max)
+    if lon_min <= lon_max:
+        lon_mask = (obs_df["LON"] >= lon_min) & (obs_df["LON"] <= lon_max)
+    else:
+        lon_mask = (obs_df["LON"] >= lon_min) | (obs_df["LON"] <= lon_max)
+    return (lat_mask & lon_mask).values
+
+
 def _filter_obs_by_subregion(obs_df, bounds, drop_out_of_bounds=True):
     """Filter observations DataFrame to a geographic subregion.
 
@@ -641,16 +653,23 @@ def _write_metric_files(container, output_path, model_type, suffix=""):
         logger.info(f"Stored result: {fname}")
 
 
-def _compute_metrics_for_obs(fds_time_slice, matched_obs, variable_map, vtime, n_members, is_ensemble):
-    """Interpolate forecast to obs locations and compute metrics for all variables.
+def _compute_metrics_from_interpolated(interpolated, obs_df, variable_map, vtime, n_members, is_ensemble):
+    """Compute metrics for all variables from already-interpolated forecast data.
+
+    Args:
+        interpolated: xr.Dataset of forecast values interpolated to obs locations
+            (dim ``locations``).
+        obs_df: pandas DataFrame of observations aligned to the same locations.
+        variable_map: Output of build_variable_map.
+        vtime: numpy datetime64 valid time.
+        n_members: Number of ensemble members.
+        is_ensemble: Whether this is an ensemble forecast.
 
     Returns:
         Tuple of (base_results, ensemble_results) where each is a dict
         mapping metric_name -> {varname: xr.DataArray}.
         ensemble_results is empty dict if not is_ensemble.
     """
-    interpolated = _interp_to_obs_locations(fds_time_slice, matched_obs)
-
     base_results = {m: {} for m in BASE_METRICS}
     ensemble_results = {m: {} for m in ENSEMBLE_METRICS} if is_ensemble else {}
 
@@ -676,7 +695,7 @@ def _compute_metrics_for_obs(fds_time_slice, matched_obs, variable_map, vtime, n
 
         result = compute_obs_metrics(
             fvals.values,
-            matched_obs[vinfo["obs_col"]].values,
+            obs_df[vinfo["obs_col"]].values,
             vtime,
         )
         for metric in BASE_METRICS:
@@ -909,9 +928,12 @@ def main(config):
 
             matched_obs = aligned[vtimestamp]
 
+            # Interpolate forecast to obs locations once for all regions
+            interpolated = _interp_to_obs_locations(fds.sel(time=vtime), matched_obs)
+
             # Global metrics
-            base_res, ens_res = _compute_metrics_for_obs(
-                fds.sel(time=vtime), matched_obs, variable_map, vtime, n_members, is_ensemble,
+            base_res, ens_res = _compute_metrics_from_interpolated(
+                interpolated, matched_obs, variable_map, vtime, n_members, is_ensemble,
             )
             for metric in BASE_METRICS:
                 for varname in forecast_var_names:
@@ -921,15 +943,16 @@ def main(config):
                     for varname in forecast_var_names:
                         per_ic_ens["global"][metric][varname].append(ens_res[metric][varname])
 
-            # Subregion metrics
+            # Subregion metrics (subset the already-interpolated data)
             for sr_name, sr_bounds in subregions.items():
-                sr_obs = _filter_obs_by_subregion(matched_obs, sr_bounds)
-                if len(sr_obs) == 0:
+                mask = _subregion_mask(matched_obs, sr_bounds)
+                if mask.sum() == 0:
                     empty_base, empty_ens = _make_empty_results(forecast_var_names, n_members, is_ensemble, vtime)
                     sr_base_res, sr_ens_res = empty_base, empty_ens
                 else:
-                    sr_base_res, sr_ens_res = _compute_metrics_for_obs(
-                        fds.sel(time=vtime), sr_obs, variable_map, vtime, n_members, is_ensemble,
+                    sr_base_res, sr_ens_res = _compute_metrics_from_interpolated(
+                        interpolated.isel(locations=mask), matched_obs.loc[mask],
+                        variable_map, vtime, n_members, is_ensemble,
                     )
                 for metric in BASE_METRICS:
                     for varname in forecast_var_names:

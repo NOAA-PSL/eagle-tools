@@ -90,6 +90,9 @@ def main(config):
         if "lam" in model_type:
             xds = xds.rename({"x": "longitude", "y": "latitude"})
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
+        chunks = config.get("chunks", None)
+        if chunks is not None:
+            xds = xds.chunk(chunks)
         xds.to_netcdf(path_out)
         logger.info(f"Wrote to {path_out}")
     logger.info(f"Done with prewxvx workflow")

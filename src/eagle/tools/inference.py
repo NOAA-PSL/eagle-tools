@@ -1,4 +1,5 @@
 import logging
+import os
 
 import numpy as np
 import pandas as pd
@@ -64,7 +65,7 @@ def create_anemoi_config(
             "netcdf": fname,
         }
 
-    return config
+    return config, fname
 
 
 def _load_model_once(main_config: dict):
@@ -80,7 +81,7 @@ def _load_model_once(main_config: dict):
         torch.nn.Module: The loaded model.
     """
     dummy_date = pd.Timestamp(main_config["start_date"])
-    anemoi_config = create_anemoi_config(init_date=dummy_date, main_config=main_config)
+    anemoi_config, output_filename = create_anemoi_config(init_date=dummy_date, main_config=main_config)
     run_config = RunConfiguration.load(anemoi_config)
     runner = create_runner(run_config)
     model = runner.model
@@ -143,16 +144,17 @@ def run_forecast(
     Returns:
         None -- files saved out to output path.
     """
-    anemoi_config = create_anemoi_config(
+    anemoi_config, output_filename = create_anemoi_config(
         init_date=init_date,
         main_config=main_config,
         member=member,
     )
-    run_config = RunConfiguration.load(anemoi_config)
-    runner = create_runner(run_config)
-    if preloaded_model is not None:
-        runner.__dict__["model"] = preloaded_model
-    runner.execute()
+    if not os.path.isfile(output_filename):
+        run_config = RunConfiguration.load(anemoi_config)
+        runner = create_runner(run_config)
+        if preloaded_model is not None:
+            runner.__dict__["model"] = preloaded_model
+        runner.execute()
     return
 
 

@@ -85,13 +85,13 @@ def main(config):
                 **open_kwargs,
             )
 
-        # Clean up before storing
-        for key in ["x", "y"]:
-            if key in xds.coords:
-                xds = xds.drop_vars(key)
         xds.attrs = {}
-        if "lam" in model_type:
+        if "lam" in model_type and config.get("rename_curvilinear_coords_to_latlon", True):
+            for key in ["x", "y"]:
+                if key in xds.coords:
+                    xds = xds.drop_vars(key)
             xds = xds.rename({"x": "longitude", "y": "latitude"})
+
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
         chunks = config.get("chunks", None)
         if chunks is not None:

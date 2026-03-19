@@ -434,6 +434,11 @@ prewxvx.help = """Postprocess forecast files for wxvx.
             sizes (e.g., ``{time: 1}``). When provided, the output dataset is
             chunked accordingly before writing to NetCDF. Dimensions not listed
             are left unchunked. Defaults to None (no chunking).
+        \b
+        rename_curvilinear_coords_to_latlon (bool, optional): For LAM model types,
+            if True, renames the curvilinear ``x``/``y`` coordinates to
+            ``longitude``/``latitude``. Set to False to keep the original
+            coordinate names. Defaults to True for backward compatibility.
     """
 
 

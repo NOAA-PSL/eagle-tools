@@ -153,4 +153,6 @@ def reconstruct_nested_dataset(
     hstacked = hstacked.swap_dims({"cell2d": "cell"}).drop_vars("cell2d")
     hstacked = hstacked.drop_vars(["y", "x"])
 
-    return xr.concat([hstacked, gcutout], dim="cell", data_vars="all")
+    result = xr.concat([hstacked, gcutout], dim="cell", data_vars="all")
+    result.attrs["lam_index"] = len(hstacked.cell)
+    return result

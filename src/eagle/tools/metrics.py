@@ -169,7 +169,7 @@ def main(config):
         mkw["spatial_dims"] = ("latitude", "longitude")
 
     if model_type == "nested-global":
-        forecast_regrid_kwargs["target_grid_path"] = prepare_regrid_target_mask(
+        forecast_regrid_kwargs["target_grid_path"], _ = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
             horizontal_regrid_kwargs=forecast_regrid_kwargs,
         )

@@ -108,7 +108,7 @@ def main(config):
     }
 
     if model_type == "nested-global":
-        config["forecast_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+        config["forecast_regrid_kwargs"]["target_grid_path"], _ = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
             horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
         )

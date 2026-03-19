@@ -70,7 +70,7 @@ def prepare_regrid_target_mask(
         tds.to_netcdf(target_grid_path)
         logger.info(f"Stored {target_grid_path}")
 
-    return target_grid_path
+    return target_grid_path, tds["mask"]
 
 
 def regrid_nested_to_latlon(

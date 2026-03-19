@@ -38,7 +38,7 @@ def main(config):
     }
 
     if model_type == "nested-global":
-        config["forecast_regrid_kwargs"]["target_grid_path"] = (
+        config["forecast_regrid_kwargs"]["target_grid_path"], mask = (
             prepare_regrid_target_mask(
                 anemoi_reference_dataset_kwargs=config[
                     "anemoi_reference_dataset_kwargs"
@@ -91,6 +91,14 @@ def main(config):
                 if key in xds.coords:
                     xds = xds.drop_vars(key)
             xds = xds.rename({"x": "longitude", "y": "latitude"})
+
+        if model_type == "nested-global":
+            xds["nest_mask"] = mask.rename({"lat": "latitude", "lon": "longitude"})
+            xds["nest_mask"].attrs = {
+                "long_name": "Nest mask",
+                "description": "Binary mask. 1 = grid cell is in the nested region, 0 = rest of the globe",
+            }
+            xds = xds.set_coords("nest_mask")
 
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
         chunks = config.get("chunks", None)

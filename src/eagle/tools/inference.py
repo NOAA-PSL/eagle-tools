@@ -45,20 +45,30 @@ def create_anemoi_config(
         "runner": main_config.get("runner", "default"),
     }
 
-    if "post_processors" in main_config:
-        config["post_processors"] = main_config["post_processors"]
-
     fname = f"{main_config['output_path']}/{date_str}.{lead_time}h.nc"
     if member is not None:
         fname = fname.replace(".nc", f".member{member:03d}.nc")
 
-    config["output"] = {
-        "netcdf": {"path": fname},
-    }
-
     variables = main_config.get("vars_of_interest", None)
-    if variables is not None:
-        config["output"]["netcdf"]["variables"] = list(variables)
+    if main_config.get("extract_lam", False):
+        fname = fname.replace(".nc", "lam.nc")
+        config["output"] = {
+            "extract_lam": {
+                "output": {
+                    "netcdf": {
+                        "path": fname,
+                    },
+                },
+            },
+        }
+        if variables is not None:
+            config["extract_lam"]["output"]["netcdf"]["variables"] = list(variables)
+    else:
+        config["output"] = {
+            "netcdf": {"path": fname},
+        }
+        if variables is not None:
+            config["output"]["netcdf"]["variables"] = list(variables)
 
     return config, fname
 

@@ -89,6 +89,9 @@ def main(config):
 
     See ``eagle-tools spectra --help`` or cli.py for help
     """
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "spectra")
 
     topo = config["topo"]
 

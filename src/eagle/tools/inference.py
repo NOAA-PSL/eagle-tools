@@ -163,6 +163,9 @@ def main(config):
 
     See ``eagle-tools inference --help`` or cli.py for help
     """
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "inference")
 
     topo = config["topo"]
 

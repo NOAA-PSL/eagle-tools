@@ -1,7 +1,4 @@
 import click
-import yaml
-
-from eagle.tools.utils import setup
 
 @click.group()
 def cli():
@@ -16,8 +13,7 @@ def inference(config_file):
     Run inference.
     """
     from eagle.tools.inference import main
-    config = setup(config_file, "inference")
-    main(config)
+    main(config_file)
 
 inference.help = """Runs Anemoi inference pipeline over many initialization dates.
 
@@ -82,8 +78,7 @@ def postprocess(config_file):
     Run postprocessing.
     """
     from eagle.tools.postprocess import main
-    config = setup(config_file, "postprocess")
-    main(config)
+    main(config_file)
 
 
 @cli.command()
@@ -93,8 +88,7 @@ def metrics(config_file):
     Compute error metrics.
     """
     from eagle.tools.metrics import main
-    config = setup(config_file, "metrics")
-    main(config)
+    main(config_file)
 
 metrics.help = """Compute grid cell area weighted RMSE and MAE.
 
@@ -171,8 +165,7 @@ def spatial(config_file):
     Compute spatial error metrics.
     """
     from eagle.tools.spatial import main
-    config = setup(config_file, "spatial")
-    main(config)
+    main(config_file)
 
 spatial.help = """Compute spatial maps of RMSE and MAE
 
@@ -246,8 +239,7 @@ def spectra(config_file):
     Compute power spectra.
     """
     from eagle.tools.spectra import main
-    config = setup(config_file, "spectra")
-    main(config)
+    main(config_file)
 
 spectra.help = """Compute the Power Spectrum averaged over all initial conditions
 
@@ -314,8 +306,7 @@ def figures(config_file):
     Visualize the fields as figures
     """
     from eagle.tools.visualize import main
-    config = setup(config_file, "figures")
-    main(config, mode="figure")
+    main(config_file, mode="figure")
 
 figures.help = """Create figures or movies visually comparing predictions to targets
 
@@ -395,8 +386,7 @@ def movies(config_file):
     Visualize the fields as figures
     """
     from eagle.tools.visualize import main
-    config = setup(config_file, "movies")
-    main(config, mode="movie")
+    main(config_file, mode="movie")
 
 movies.help = figures.help
 
@@ -408,8 +398,7 @@ def prewxvx(config_file):
     Postprocess forecast files for wxvx
     """
     from eagle.tools.prewxvx import main
-    config = setup(config_file, "prewxvx")
-    main(config)
+    main(config_file)
 
 prewxvx.help = """Postprocess forecast files for wxvx.
 
@@ -450,16 +439,14 @@ def postwxvx(config_file):
     Gather wxvx stats
     """
     from eagle.tools.postwxvx import main
-    config = setup(config_file, "postwxvx")
-    main(config)
+    main(config_file)
 
 @cli.command("obs-metrics")
 @click.argument('config_file', type=click.Path(exists=True))
 def obs_metrics(config_file):
     """Verify forecasts against observations."""
     from eagle.tools.obs_metrics import main
-    config = setup(config_file, "obs_metrics")
-    main(config)
+    main(config_file)
 
 obs_metrics.help = """Verify forecasts against real observations (e.g., radiosondes).
 

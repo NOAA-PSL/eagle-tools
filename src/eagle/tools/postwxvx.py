@@ -103,6 +103,9 @@ def met_dict_to_dataset(mdict):
 
 
 def main(config):
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "postwxvx")
 
     topo = config["topo"]
     if config["use_mpi"]:

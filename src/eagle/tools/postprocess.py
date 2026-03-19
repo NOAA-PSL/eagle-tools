@@ -424,6 +424,9 @@ def run(
 
 
 def main(config):
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "postprocess")
 
     dates = pd.date_range(start=config["start_date"], end=config["end_date"], freq=config["freq"])
 

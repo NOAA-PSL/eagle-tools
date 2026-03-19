@@ -208,6 +208,11 @@ def main(config, mode):
 
     See ``eagle-tools visualize --help`` or cli.py for help
     """
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        command = "figures" if mode == "figure" else "movies"
+        config = setup(config, command)
+
     topo = config["topo"]
     if config["use_mpi"]:
         raise NotImplementedError

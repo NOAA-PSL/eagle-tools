@@ -776,6 +776,10 @@ def main(config):
 
     See ``eagle-tools obs-metrics --help`` or cli.py for help.
     """
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "obs_metrics")
+
     topo = config["topo"]
     obs_config = _load_obs_config()
     dataset_registry = obs_config["dataset_registry"]

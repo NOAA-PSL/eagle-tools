@@ -16,6 +16,9 @@ logger = logging.getLogger("eagle.tools")
 
 
 def main(config):
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "prewxvx")
 
     topo = config["topo"]
 

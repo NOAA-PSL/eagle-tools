@@ -49,6 +49,7 @@ def create_anemoi_config(
     if member is not None:
         fname = fname.replace(".nc", f".member{member:03d}.nc")
 
+    variables = main_config.get("vars_of_interest", None)
     if main_config.get("extract_lam", False):
         fname = fname.replace(".nc", "lam.nc")
         config["output"] = {
@@ -60,10 +61,14 @@ def create_anemoi_config(
                 },
             },
         }
+        if variables is not None:
+            config["extract_lam"]["output"]["netcdf"]["variables"] = list(variables)
     else:
         config["output"] = {
-            "netcdf": fname,
+            "netcdf": {"path": fname},
         }
+        if variables is not None:
+            config["output"]["netcdf"]["variables"] = list(variables)
 
     return config, fname
 

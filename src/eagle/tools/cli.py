@@ -68,6 +68,11 @@ inference.help = """Runs Anemoi inference pipeline over many initialization date
         overwrite_existing (bool, optional): If True, re-run inference even when
             the output NetCDF file already exists. If False, skip initialization
             dates whose output files are already present. Defaults to False.
+        \b
+        vars_of_interest (list[str], optional): A subselection of variables to store
+        from the forecast. Note that variable names need the pressure level prefix here,
+        unlike all other eagle-tools workflows (e.g., t_850, t_500 rather than selecting
+        "t" and levels: [500, 850]). If None, all variables are used. Defaults to None.
     """
 
 

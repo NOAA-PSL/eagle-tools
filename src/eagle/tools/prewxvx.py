@@ -35,6 +35,7 @@ def main(config):
         "vars_of_interest": config.get("vars_of_interest", None),
         "member": config.get("member", None),
         "lcc_info": config.get("lcc_info", None),
+        "rename_to_longnames": config.get("rename_to_longnames", False)
     }
 
     if model_type == "nested-global":
@@ -103,6 +104,14 @@ def main(config):
         # Attributes
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
 
+        user_attributes = config.get("attributes", {})
+        xds.attrs.update(user_attributes.get("dataset", {}))
+        for varname, var_attrs in user_attributes.get("variables", {}).items():
+            if varname in xds:
+                xds[varname].attrs.update(var_attrs)
+            else:
+                logger.warning(f"Variable '{varname}' not found in dataset, skipping attributes")
+
         # Add descriptive meta info for diagnostic fields, which have all NaNs in the first timestamp
         for varname in xds.data_vars:
             t0 = xds[varname].isel(time=0)
@@ -110,7 +119,14 @@ def main(config):
             num_cell = np.prod(t0.shape)
             if num_nans == num_cell:
                 logger.info(f"Found diagnostic {varname}")
-                xds[varname].attrs["description"] = f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
+                note = xds[varname].attrs.get("diagnostic_note", "")
+                if len(note) > 0:
+                    note += " "
+                note += f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
+                xds[varname].attrs["diagnostic_note"] = note
+
+        # Sort the data variables
+        xds = xds[sorted(xds.data_vars)]
 
         # Chunking
         chunks = config.get("chunks", None)

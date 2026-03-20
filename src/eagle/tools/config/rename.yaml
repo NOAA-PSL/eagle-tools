@@ -15,6 +15,7 @@ q: specific_humidity
 u: zonal_wind
 v: meridional_wind
 w: vertical_velocity
+t_surface: surface_temperature
 # Replay Style
 pressfc: surface_pressure
 prateb_ave: total_precipitation_6hr

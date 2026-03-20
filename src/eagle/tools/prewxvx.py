@@ -118,7 +118,11 @@ def main(config):
             num_cell = np.prod(t0.shape)
             if num_nans == num_cell:
                 logger.info(f"Found diagnostic {varname}")
-                xds[varname].attrs["description"] = f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
+                note = xds[varname].attrs.get("diagnostic_note", "")
+                if len(note) > 0:
+                    note += " "
+                note += f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
+                xds[varname].attrs["diagnostic_note"] = note
 
         # Chunking
         chunks = config.get("chunks", None)

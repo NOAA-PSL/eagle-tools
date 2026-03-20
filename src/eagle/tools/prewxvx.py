@@ -103,6 +103,14 @@ def main(config):
         # Attributes
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
 
+        user_attributes = config.get("attributes", {})
+        xds.attrs.update(user_attributes.get("dataset", {}))
+        for varname, var_attrs in user_attributes.get("variables", {}).items():
+            if varname in xds:
+                xds[varname].attrs.update(var_attrs)
+            else:
+                logger.warning(f"Variable '{varname}' not found in dataset, skipping attributes")
+
         # Add descriptive meta info for diagnostic fields, which have all NaNs in the first timestamp
         for varname in xds.data_vars:
             t0 = xds[varname].isel(time=0)

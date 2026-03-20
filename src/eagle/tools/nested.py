@@ -122,7 +122,7 @@ def regrid_nested_to_latlon(
     result = reshape_cell_to_latlon(result)
     result = result.sortby("latitude", ascending=lat_is_ascending)
     for varname in diagnostic_variables:
-        result[varname][{"time": 0}] = np.nan if np.issubdtype(result[varname].dtype, np.floating) else 0
+        result[varname][{"time": 0}] = np.nan
     return result
 
 

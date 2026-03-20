@@ -125,6 +125,9 @@ def main(config):
                 note += f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
                 xds[varname].attrs["diagnostic_note"] = note
 
+        # Sort the data variables
+        xds = xds[sorted(xds.data_vars)]
+
         # Chunking
         chunks = config.get("chunks", None)
         if chunks is not None:

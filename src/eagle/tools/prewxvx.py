@@ -35,6 +35,7 @@ def main(config):
         "vars_of_interest": config.get("vars_of_interest", None),
         "member": config.get("member", None),
         "lcc_info": config.get("lcc_info", None),
+        "rename_to_longnames": config.get("rename_to_longnames", False)
     }
 
     if model_type == "nested-global":

@@ -90,6 +90,16 @@ def regrid_nested_to_latlon(
     cds = xds.isel(cell=slice(lam_index, None))
     lat_is_ascending = cds["latitude"][0] < cds["latitude"][-1]
 
+    # Look for diagnostic fields, which have all NaNs in the first time slice
+    diagnostic_variables = list()
+    for varname in lds.data_vars:
+        t0 = lds[varname].isel(time=0)
+        num_nans = np.isnan(t0).sum().values
+        num_cell = np.prod(t0.shape)
+        if num_nans == num_cell:
+            logger.info(f"Found diagnostic {varname}")
+            diagnostic_variables.append(varname)
+            lds[varname][{"time": 0}] = 0
 
     # Regrid to global resolution, stack lat/lon, drop non LAM part
     lam_on_global = horizontal_regrid(lds, **horizontal_regrid_kwargs)
@@ -111,6 +121,8 @@ def regrid_nested_to_latlon(
     result = result.isel(cell=sort_index)
     result = reshape_cell_to_latlon(result)
     result = result.sortby("latitude", ascending=lat_is_ascending)
+    for varname in diagnostic_variables:
+        result[varname][{"time": 0}] = np.nan if np.issubdtype(result[varname].dtype, np.floating) else 0
     return result
 
 

@@ -100,7 +100,19 @@ def main(config):
             }
             xds = xds.set_coords("nest_mask")
 
+        # Attributes
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
+
+        # Add descriptive meta info for diagnostic fields, which have all NaNs in the first time slice
+        for varname in xds.data_vars:
+            t0 = xds[varname].isel(time=0)
+            num_nans = np.isnan(t0).sum().values
+            num_cell = np.prod(t0.shape)
+            if num_nans == num_cell:
+                logger.info(f"Found diagnostic {varname}")
+                xds[varname].attrs["description"] = f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
+
+        # Chunking
         chunks = config.get("chunks", None)
         if chunks is not None:
             xds = xds.chunk(chunks)

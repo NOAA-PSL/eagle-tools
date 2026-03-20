@@ -103,7 +103,7 @@ def main(config):
         # Attributes
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
 
-        # Add descriptive meta info for diagnostic fields, which have all NaNs in the first time slice
+        # Add descriptive meta info for diagnostic fields, which have all NaNs in the first timestamp
         for varname in xds.data_vars:
             t0 = xds[varname].isel(time=0)
             num_nans = np.isnan(t0).sum().values

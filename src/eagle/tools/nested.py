@@ -97,7 +97,7 @@ def regrid_nested_to_latlon(
         num_nans = np.isnan(t0).sum().values
         num_cell = np.prod(t0.shape)
         if num_nans == num_cell:
-            logger.info(f"Found diagnostic {varname}")
+            logger.debug(f"regrid_nested_to_latlon: Found diagnostic {varname}")
             diagnostic_variables.append(varname)
             lds[varname][{"time": 0}] = 0
 

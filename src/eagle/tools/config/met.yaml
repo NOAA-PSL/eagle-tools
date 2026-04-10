@@ -26,8 +26,8 @@ metadata_keys:
 
 rename:
   2t_heightAboveGround_0002: 2m_temperature
-  u_10m_heightAboveGround_0010: 10m_zonal_wind
-  v_10m_heightAboveGround_0010: 10m_meridional_wind
+  10u_heightAboveGround_0010: 10m_zonal_wind
+  10v_heightAboveGround_0010: 10m_meridional_wind
   gh_isobaricInhPa_0500: 500hpa_geopotential_height
   t_isobaricInhPa_0850: 850hpa_temperature
   q_isobaricInhPa_0850: 850hpa_specific_humidity

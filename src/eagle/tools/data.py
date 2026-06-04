@@ -385,7 +385,9 @@ def open_forecast_zarr_dataset(
     if not reshape_cell_to_2d:
         xds = flatten_to_cell(xds)
 
-    xds = xds.drop_vars(["t0", "valid_time"])
+    for key in ["t0", "valid_time"]:
+        if key in xds:
+            xds = xds.drop_vars(key)
 
     if load:
         xds = xds.load()

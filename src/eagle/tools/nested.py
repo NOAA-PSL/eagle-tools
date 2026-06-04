@@ -48,7 +48,6 @@ def prepare_regrid_target_mask(
     """check if the target mask is there, otherwise add it and store it in a new spot"""
 
     target_grid_path = os.path.expandvars(horizontal_regrid_kwargs["target_grid_path"])
-    regridder_kwargs = horizontal_regrid_kwargs["regridder_kwargs"]
 
     kw = horizontal_regrid_kwargs.get("open_target_kwargs", {})
     tds = xr.open_dataset(target_grid_path, **kw)

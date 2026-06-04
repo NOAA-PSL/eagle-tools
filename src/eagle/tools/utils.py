@@ -25,15 +25,20 @@ def setup(config_filename: str, command: str):
 def open_yaml_config(config_filename: str):
     with open(config_filename, "r") as f:
         config = yaml.safe_load(f)
+    _expand_paths(config)
+    return config
 
-    # expand any environment variables
+
+def _expand_paths(config: dict):
+    """Recursively expand environment variables in string values whose key contains 'path'."""
     for key, val in config.items():
-        if "path" in key:
+        if isinstance(val, dict):
+            _expand_paths(val)
+        elif "path" in key:
             if isinstance(val, str):
                 config[key] = os.path.expandvars(val)
             else:
                 logger.warning(f"Not expanding environment variables in {key} in config, since it could be many different types")
-    return config
 
 def init_topo(config: dict, command: str) -> MPITopology | SerialTopology:
 

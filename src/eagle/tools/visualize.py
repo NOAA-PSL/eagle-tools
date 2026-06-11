@@ -15,7 +15,7 @@ import cmocean
 
 import xmovie
 
-from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset
+from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.nested import get_nested_plot_box, regrid_nested_to_latlon
 
 logger = logging.getLogger("eagle.tools")
@@ -222,6 +222,7 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
 
     # now the colorbar
     [ax.set(xlabel="", ylabel="") for ax in axs]
+    [ax.spines["geo"].set_visible(False) for ax in axs]
     [add_cartopy_features(ax, cartopy_features) for ax in axs]
 
     label = xds.attrs.get("label", "")
@@ -346,19 +347,40 @@ def main(config, mode):
         tds = tds.sel(time=slice(t0, tf))
     logger.info(f"Opened Target dataset:\n{tds}")
 
-    # Prediction dataset
+    # Prediction dataset: either anemoi inference netcdf (from_anemoi, one file per
+    # init time) or a ufs2arco-style forecast zarr (from_anemoi: false).
+    from_anemoi = config.get("from_anemoi", True)
+    trim_forecast_edge = config.get("trim_forecast_edge", None)
     fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
     if member is not None:
         fname = fname.replace(".nc", f".member{member:03d}.nc")
-    pds = open_anemoi_inference_dataset(
-        fname,
-        model_type=model_type,
-        lam_index=lam_index,
-        trim_edge=config.get("trim_forecast_edge", None),
-        rename_to_longnames=True,
-        reshape_cell_to_2d=True,
-        **subsample_kwargs,
-    )
+
+    def open_prediction(sub, regrid_kwargs=None):
+        """Open the forecast for the given subsample kwargs ``sub``. If
+        ``regrid_kwargs`` is given and the model is an anemoi nested forecast, the
+        forecast is regridded to a common lat/lon grid (used for contours)."""
+        use_regrid = regrid_kwargs is not None and from_anemoi and model_type == "nested"
+        if from_anemoi:
+            return open_anemoi_inference_dataset(
+                fname,
+                model_type="nested-global" if use_regrid else model_type,
+                lam_index=lam_index,
+                trim_edge=trim_forecast_edge,
+                rename_to_longnames=True,
+                reshape_cell_to_2d=True,
+                horizontal_regrid_kwargs=regrid_kwargs if use_regrid else None,
+                **sub,
+            )
+        return open_forecast_zarr_dataset(
+            config["forecast_path"],
+            t0=t0,
+            trim_edge=trim_forecast_edge,
+            rename_to_longnames=True,
+            reshape_cell_to_2d=True,
+            **sub,
+        )
+
+    pds = open_prediction(subsample_kwargs)
     if mode == "figure":
         pds = pds.sel(time=[tf])
     else:
@@ -381,28 +403,17 @@ def main(config, mode):
             "lcc_info": config.get("lcc_info", None),
         }
 
-        # Target: load native (cell) then regrid the nested grid to lat/lon
+        # Target: for nested, load native (cell) then regrid to lat/lon; otherwise
+        # load directly on its native 2D grid.
         tds_c = open_anemoi_dataset(
             model_type=model_type,
             t0=str(t0),
             tf=str(tf),
             rename_to_longnames=True,
-            reshape_cell_to_2d=False,
+            reshape_cell_to_2d=model_type != "nested",
             **contour_subsample,
             **config["verification_dataset_kwargs"],
         ).squeeze("member")
-
-        # Prediction: regrid the nested forecast to lat/lon via "nested-global"
-        pds_c = open_anemoi_inference_dataset(
-            fname,
-            model_type="nested-global" if model_type == "nested" else model_type,
-            lam_index=lam_index,
-            trim_edge=config.get("trim_forecast_edge", None),
-            rename_to_longnames=True,
-            reshape_cell_to_2d=True,
-            horizontal_regrid_kwargs=regrid_kwargs,
-            **contour_subsample,
-        )
         if model_type == "nested":
             tds_c = regrid_nested_to_latlon(
                 tds_c,
@@ -410,6 +421,9 @@ def main(config, mode):
                 lcc_info=config.get("lcc_info", None),
                 horizontal_regrid_kwargs=regrid_kwargs,
             )
+
+        # Prediction: regridded to lat/lon for nested, else on its native 2D grid
+        pds_c = open_prediction(contour_subsample, regrid_kwargs=regrid_kwargs)
 
         sel = [tf] if mode == "figure" else slice(t0, tf)
         tds_c = tds_c.sel(time=sel)

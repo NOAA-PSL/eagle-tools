@@ -10,14 +10,32 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import cmocean
 
 import xmovie
 
 from eagle.tools.data import open_anemoi_dataset, open_anemoi_inference_dataset
-from eagle.tools.nested import get_nested_plot_box
+from eagle.tools.nested import get_nested_plot_box, regrid_nested_to_latlon
 
 logger = logging.getLogger("eagle.tools")
+
+
+def _expand_env(obj):
+    """Recursively expand environment variables in all string values of a config.
+
+    The config ``setup`` only expands keys containing 'path', but the regrid
+    kwargs also reference ``${SCRATCH}`` under non-path keys (e.g. ``filename``),
+    so expand everything here before handing them to the regridder.
+    """
+    if isinstance(obj, dict):
+        return {k: _expand_env(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_expand_env(v) for v in obj]
+    if isinstance(obj, str):
+        return os.path.expandvars(obj)
+    return obj
+
 
 def get_extend(xds, vmin=None, vmax=None):
     minval = []
@@ -55,19 +73,80 @@ def get_precip_kwargs():
     }
 
 
-def plot_nested_box(ax, box):
+# cartopy features the user may request by name in their yaml. "coastlines" is
+# handled specially via ax.coastlines(); the rest are predefined cfeature objects
+# added via ax.add_feature(). Keys are case-insensitive in the config.
+_CARTOPY_FEATURES = {
+    "borders": cfeature.BORDERS,
+    "states": cfeature.STATES,
+    "land": cfeature.LAND,
+    "ocean": cfeature.OCEAN,
+    "lakes": cfeature.LAKES,
+    "rivers": cfeature.RIVERS,
+}
+
+
+def add_cartopy_features(ax, features):
+    """Add cartopy map features (coastlines, borders, states, ...) to an axis.
+
+    ``features`` is a dict mapping a feature name to a dict of kwargs passed
+    through to ``ax.coastlines`` / ``ax.add_feature``. For example, in yaml::
+
+        cartopy_features:
+          coastlines:
+            resolution: "50m"
+            color: black
+          borders:
+            edgecolor: gray
+            linewidth: 0.5
+          states:
+            edgecolor: gray
+
+    A feature may be given an empty/null mapping to add it with defaults.
+    """
+    for name, kwargs in features.items():
+        kwargs = kwargs or {}
+        key = name.lower()
+        if key == "coastlines":
+            ax.coastlines(**kwargs)
+        elif key in _CARTOPY_FEATURES:
+            ax.add_feature(_CARTOPY_FEATURES[key], **kwargs)
+        else:
+            raise ValueError(
+                f"Unknown cartopy feature '{name}'. Valid options are: "
+                f"'coastlines', {', '.join(repr(k) for k in _CARTOPY_FEATURES)}."
+            )
+
+
+def add_contours(ax, da, clabel=False, clabel_kwargs=None, **kwargs):
+    """Overlay contour lines of a regridded (lat/lon) field ``da`` on ``ax``.
+
+    ``da`` is a 2D DataArray carrying ``longitude``/``latitude`` coordinates.
+    Remaining kwargs (levels, colors, linewidths, linestyles, alpha, ...) pass
+    straight through to ``ax.contour``. Set ``clabel=True`` (with optional
+    ``clabel_kwargs``) to inline-label the contours.
+    """
+    kwargs.setdefault("transform", ccrs.PlateCarree())
+    cs = ax.contour(da["longitude"], da["latitude"], da.values, **kwargs)
+    if clabel:
+        ax.clabel(cs, **(clabel_kwargs or {}))
+    return cs
+
+
+def plot_nested_box(ax, box, box_kwargs=None):
     kw = {
         "color": "gray",
         "transform": ccrs.PlateCarree(),
         "lw": 1,
         "alpha": .8,
     }
+    kw.update(box_kwargs or {})
     for idx in [0, -1]:
         ax.plot(box["longitude"][box["y"], idx], box["latitude"][box["y"], idx], **kw)
         ax.plot(box["longitude"][idx, box["x"]], box["latitude"][idx, box["x"]], **kw)
 
 
-def nested_scatter(ax, xds, varname, lam_index, box, lam_size=0.25, global_size=12, **kwargs):
+def nested_scatter(ax, xds, varname, lam_index, box, lam_size=0.25, global_size=12, box_kwargs=None, **kwargs):
     mappables = []
     for slc, s in zip(
         [slice(None, lam_index), slice(lam_index, None)],
@@ -83,7 +162,7 @@ def nested_scatter(ax, xds, varname, lam_index, box, lam_size=0.25, global_size=
         )
         mappables.append(p)
 
-    plot_nested_box(ax, box)
+    plot_nested_box(ax, box, box_kwargs=box_kwargs)
     return mappables[0]
 
 
@@ -102,6 +181,10 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
     box = kwargs.pop("box", None)
     lam_size = kwargs.pop("lam_size", None)
     global_size = kwargs.pop("global_size", None)
+    box_kwargs = kwargs.pop("box_kwargs", None)
+    cartopy_features = kwargs.pop("cartopy_features", {"coastlines": {"resolution": "50m"}})
+    contour_kwargs = kwargs.pop("contour_kwargs", None)
+    contour_data = kwargs.pop("contour_data", None)
 
     subplot_kw = {}
     projection = kwargs.pop("projection", None)
@@ -115,7 +198,7 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
         ax = fig.add_subplot(1, 2, ii+1, **subplot_kw)
 
         if model_type == "nested":
-            p = nested_scatter(ax, xds.isel(time=time), label, lam_index, box, lam_size=lam_size, global_size=global_size, **kwargs)
+            p = nested_scatter(ax, xds.isel(time=time), label, lam_index, box, lam_size=lam_size, global_size=global_size, box_kwargs=box_kwargs, **kwargs)
 
         else:
             p = ax.pcolormesh(
@@ -125,12 +208,21 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
                 transform=ccrs.PlateCarree(),
                 **kwargs,
             )
+        # overlay contours of a second field (e.g. geopotential height), if requested.
+        # The contour field lives on its own regridded lat/lon grid (separate from the
+        # nested scatter grid), so it is passed in via contour_data rather than xds.
+        if contour_data is not None and label in contour_data:
+            ck = dict(contour_kwargs or {})
+            clabel = ck.pop("clabel", False)
+            clabel_kwargs = ck.pop("clabel_kwargs", None)
+            add_contours(ax, contour_data[label].isel(time=time), clabel=clabel, clabel_kwargs=clabel_kwargs, **ck)
+
         ax.set(title=xds[label].nice_name)
         axs.append(ax)
 
     # now the colorbar
     [ax.set(xlabel="", ylabel="") for ax in axs]
-    [ax.coastlines("50m") for ax in axs]
+    [add_cartopy_features(ax, cartopy_features) for ax in axs]
 
     label = xds.attrs.get("label", "")
     label += f"\nt0: {st0}"
@@ -273,6 +365,69 @@ def main(config, mode):
         pds = pds.sel(time=slice(t0, tf))
     logger.info(f"Opened Prediction dataset:\n{pds}")
 
+    # Optional contour overlay (e.g. geopotential height on top of wind speed).
+    # The contour field is loaded independently of the colormap variables, and
+    # for a nested model it is regridded to a common lat/lon resolution so the
+    # contours are clean (the colormap plot keeps the native scatter rendering).
+    contour_config = config.get("contours", None)
+    contour_data = None
+    if contour_config is not None:
+        contour_var = contour_config["variable"]
+        contour_level = contour_config.get("level", None)
+        regrid_kwargs = _expand_env(contour_config.get("forecast_regrid_kwargs", None))
+        contour_subsample = {
+            "levels": [contour_level] if contour_level is not None else None,
+            "vars_of_interest": [contour_var],
+            "lcc_info": config.get("lcc_info", None),
+        }
+
+        # Target: load native (cell) then regrid the nested grid to lat/lon
+        tds_c = open_anemoi_dataset(
+            model_type=model_type,
+            t0=str(t0),
+            tf=str(tf),
+            rename_to_longnames=True,
+            reshape_cell_to_2d=False,
+            **contour_subsample,
+            **config["verification_dataset_kwargs"],
+        ).squeeze("member")
+
+        # Prediction: regrid the nested forecast to lat/lon via "nested-global"
+        pds_c = open_anemoi_inference_dataset(
+            fname,
+            model_type="nested-global" if model_type == "nested" else model_type,
+            lam_index=lam_index,
+            trim_edge=config.get("trim_forecast_edge", None),
+            rename_to_longnames=True,
+            reshape_cell_to_2d=True,
+            horizontal_regrid_kwargs=regrid_kwargs,
+            **contour_subsample,
+        )
+        if model_type == "nested":
+            tds_c = regrid_nested_to_latlon(
+                tds_c,
+                lam_index=lam_index,
+                lcc_info=config.get("lcc_info", None),
+                horizontal_regrid_kwargs=regrid_kwargs,
+            )
+
+        sel = [tf] if mode == "figure" else slice(t0, tf)
+        tds_c = tds_c.sel(time=sel)
+        pds_c = pds_c.sel(time=sel)
+
+        # grab the single (renamed) contour variable and drop the singleton level
+        # (keep the time dim intact so plot_single_timestamp can index it per frame)
+        cvar = list(tds_c.data_vars)[0]
+        def _prep_contour(da):
+            if "level" in da.dims:
+                da = da.isel(level=0, drop=True)
+            return da.load()
+        contour_data = {
+            "target": _prep_contour(tds_c[cvar]),
+            "prediction": _prep_contour(pds_c[cvar]),
+        }
+        logger.info(f"Opened contour dataset for '{cvar}'")
+
     # setup plot options with user overrides
     defaults_path = importlib.resources.files("eagle.tools.config") / "defaults.yaml"
     with defaults_path.open("r") as f:
@@ -341,20 +496,33 @@ def main(config, mode):
             options["extend"] = "max" if vmax > 50 else "neither"
             logger.info(f"\ttotal_precipitation hack: setting extend based on upper limit of 50")
 
+        if contour_data is not None:
+            options["contour_data"] = contour_data
+            options["contour_kwargs"] = {
+                k: v for k, v in contour_config.items()
+                if k not in ("variable", "level", "forecast_regrid_kwargs")
+            }
+
         options["st0"] = st0
         options["projection"] = fig_kwargs["projection"]
         options["projection_kwargs"] = fig_kwargs.get("projection_kwargs", {})
+        if "cartopy_features" in fig_kwargs:
+            options["cartopy_features"] = fig_kwargs["cartopy_features"]
         options["model_type"] = model_type
         if model_type == "nested":
             options["lam_index"] = lam_index
             options["box"] = box
             options["lam_size"] = fig_kwargs["lam_size"]
             options["global_size"] = fig_kwargs["global_size"]
+            options["box_kwargs"] = fig_kwargs.get("box_kwargs", {})
 
         logger.info(f"Plotting {varname} with options")
         for key, val in options.items():
             if key == "box" and box is not None:
                 logger.info(f"\t{key}: {val.keys()}")
+
+            elif key == "contour_data":
+                logger.info(f"\t{key}: {list(val.keys())}")
 
             else:
                 logger.info(f"\t{key}: {val}")

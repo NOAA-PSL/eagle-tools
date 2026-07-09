@@ -46,6 +46,27 @@ def rmse(target, prediction, weights=1., keep_t0=False):
     return postprocess(xds, keep_t0)
 
 
+def signed_difference(target, prediction, keep_t0=False):
+    """Member-mean signed difference ``target - prediction`` per gridcell.
+
+    Unweighted, in physical units. This is the sufficient statistic for an
+    after-the-fact bias/variance decomposition: at each gridcell and lead time,
+    over a collection of initial conditions ``t0``,
+
+        bias = mean_t0[d],   variance = var_t0[d],   MSE = mean_t0[d**2]
+
+    so any grouping of the ``t0`` (e.g. by valid hour for a diurnal cycle, or by
+    season) can be applied later.
+    """
+    result = {}
+    for key in prediction.data_vars:
+        d = (target[key] - prediction[key]).mean("member")
+        result[key] = d.compute()
+
+    xds = xr.Dataset(result)
+    return postprocess(xds, keep_t0)
+
+
 def mae(target, prediction, weights=1., keep_t0=False):
     result = {}
     for key in prediction.data_vars:

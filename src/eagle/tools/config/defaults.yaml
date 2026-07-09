@@ -37,12 +37,62 @@ fig_kwargs:
   lam_size: 0.25
   global_size: 12
 
+  # Styling of the box drawn around the LAM region (nested model only).
+  # Passed as kwargs to ax.plot(); e.g. color, lw, alpha, linestyle.
+  # box_kwargs:
+  #   color: white
+  #   lw: 1
+  #   alpha: 0.8
+
+  # Cartopy map features drawn on each subplot. Each key is a feature name and
+  # its mapping is passed as kwargs to ax.coastlines() / ax.add_feature().
+  # Valid features: coastlines, borders, states, land, ocean, lakes, rivers.
+  cartopy_features:
+    coastlines:
+      resolution: "50m"
+  # Example with more features and per-feature styling:
+  # cartopy_features:
+  #   coastlines:
+  #     resolution: "50m"
+  #     color: black
+  #   borders:
+  #     edgecolor: gray
+  #     linewidth: 0.5
+  #   states:
+  #     edgecolor: gray
+  #     linewidth: 0.3
+
   # Orthographic Projection example
   # height: 7
   # projection: Orthographic
   # projection_kwargs:
   #   central_longitude: -120
   #   central_latitude: 20
+
+# Optional contour overlay drawn on top of every colormap plot, e.g. geopotential
+# height lines on top of wind speed. The field is loaded independently of the
+# colormap variables, so name its variable/level explicitly (same conventions as
+# vars_of_interest / levels). For a nested model the contour field is regridded to
+# a common lat/lon resolution via forecast_regrid_kwargs (same form as obs-metrics /
+# spatial), so the contours are clean; the colormap plot keeps the native scatter.
+# Remaining keys pass straight to ax.contour (levels, colors, linewidths, linestyles,
+# alpha, ...). Set clabel: true (with optional clabel_kwargs) to inline-label them.
+# contours:
+#   variable: gh
+#   level: 500
+#   forecast_regrid_kwargs:
+#     target_grid_path: ${SCRATCH}/.../global_quarter_degree_with_mask.nc
+#     regridder_kwargs:
+#       method: conservative_normed
+#       reuse_weights: True
+#       filename: ${SCRATCH}/.../conservative_lam_to_global.nc
+#   levels: 12
+#   colors: black
+#   linewidths: 0.6
+#   clabel: true
+#   clabel_kwargs:
+#     fontsize: 7
+#     fmt: "%.0f"
 
 units:
   10m_wind_speed: m/s

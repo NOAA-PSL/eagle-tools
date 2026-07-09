@@ -296,7 +296,7 @@ def open_anemoi_inference_dataset(
         xr.Dataset: The inference dataset.
     """
 
-    assert model_type in ("nested", "nested-lam", "nested-global", "global")
+    assert model_type in ("nested", "nested-lam", "nested-cutout", "nested-global", "global")
 
     ids = xr.open_dataset(path, chunks="auto")
     xds = convert_anemoi_inference_dataset(ids)

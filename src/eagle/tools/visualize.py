@@ -165,6 +165,16 @@ def nested_scatter(ax, xds, varname, lam_index, box, lam_size=0.25, global_size=
     plot_nested_box(ax, box, box_kwargs=box_kwargs)
     return mappables[0]
 
+def cutout_scatter(ax, xds, varname, lam_index, global_size=12, **kwargs):
+    return ax.scatter(
+        xds["longitude"].isel(cell=slice(lam_index,None)),
+        xds["latitude"].isel(cell=slice(lam_index,None)),
+        c=xds[varname].isel(cell=slice(lam_index,None)),
+        s=global_size,
+        transform=ccrs.PlateCarree(),
+        **kwargs,
+    )
+
 
 def plot_single_timestamp(xds, fig, time, *args, **kwargs):
 
@@ -199,6 +209,8 @@ def plot_single_timestamp(xds, fig, time, *args, **kwargs):
 
         if model_type == "nested":
             p = nested_scatter(ax, xds.isel(time=time), label, lam_index, box, lam_size=lam_size, global_size=global_size, box_kwargs=box_kwargs, **kwargs)
+        elif model_type == "nested-cutout":
+            p = cutout_scatter(ax, xds.isel(time=time), label, lam_index, global_size=global_size, **kwargs)
 
         else:
             p = ax.pcolormesh(
@@ -336,7 +348,7 @@ def main(config, mode):
         t0=str(t0),
         tf=str(tf),
         rename_to_longnames=True,
-        reshape_cell_to_2d=model_type != "nested",
+        reshape_cell_to_2d=model_type not in ("nested", "nested-cutout"),
         **subsample_kwargs,
         **config["verification_dataset_kwargs"],
     )
@@ -359,7 +371,7 @@ def main(config, mode):
         """Open the forecast for the given subsample kwargs ``sub``. If
         ``regrid_kwargs`` is given and the model is an anemoi nested forecast, the
         forecast is regridded to a common lat/lon grid (used for contours)."""
-        use_regrid = regrid_kwargs is not None and from_anemoi and model_type == "nested"
+        use_regrid = regrid_kwargs is not None and from_anemoi and model_type in ("nested", "nested-cutout")
         if from_anemoi:
             return open_anemoi_inference_dataset(
                 fname,
@@ -410,11 +422,11 @@ def main(config, mode):
             t0=str(t0),
             tf=str(tf),
             rename_to_longnames=True,
-            reshape_cell_to_2d=model_type != "nested",
+            reshape_cell_to_2d=model_type not in ("nested", "nested-cutout"),
             **contour_subsample,
             **config["verification_dataset_kwargs"],
         ).squeeze("member")
-        if model_type == "nested":
+        if model_type in ("nested", "nested-cutout"):
             tds_c = regrid_nested_to_latlon(
                 tds_c,
                 lam_index=lam_index,
@@ -529,6 +541,9 @@ def main(config, mode):
             options["lam_size"] = fig_kwargs["lam_size"]
             options["global_size"] = fig_kwargs["global_size"]
             options["box_kwargs"] = fig_kwargs.get("box_kwargs", {})
+        elif model_type == "nested-cutout":
+            options["lam_index"] = lam_index
+            options["global_size"] = fig_kwargs["global_size"]
 
         logger.info(f"Plotting {varname} with options")
         for key, val in options.items():

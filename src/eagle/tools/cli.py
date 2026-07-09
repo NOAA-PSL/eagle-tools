@@ -237,6 +237,90 @@ spatial.help = """Compute spatial maps of RMSE and MAE
     """
 
 
+@cli.command("spatial-forecast")
+@click.argument('config_file', type=click.Path(exists=True))
+def spatial_forecast(config_file):
+    """
+    Compute spatial error metrics between two forecasts.
+    """
+    from eagle.tools.spatial_forecast import main
+    main(config_file)
+
+spatial_forecast.help = """Compute spatial maps of RMSE and MAE between two forecast datasets.
+
+    \b
+    forecast1 is treated as the reference (target) and forecast2 as the prediction.
+    Each forecast can independently be opened as an anemoi inference dataset or a
+    forecast zarr dataset via its ``from_anemoi`` flag, and may have a different
+    model_type (e.g. one nested-global and one global). Area weights are derived
+    from forecast1's grid.
+
+    \b
+    Output filenames encode both model types:
+        f"{output_path}/spatial.rmse.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+        f"{output_path}/spatial.mae.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+        or if keep_t0=True, then as
+        f"{output_path}/spatial.rmse.perIC.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+        f"{output_path}/spatial.mae.perIC.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+
+    \b
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    \b
+    Config Args:
+        forecast1 (dict): Config for the reference forecast. Keys:
+            model_type (str): The type of model grid, one of: "global", "lam",
+                "nested-lam", "nested-global".
+            path (str): Directory containing per-date NetCDF files (from_anemoi=True)
+                or path to the zarr store (from_anemoi=False).
+            from_anemoi (bool, optional): If True, opens with the anemoi inference
+                dataset format. Defaults to True.
+            lam_index (int, optional): For nested models, the number of grid points
+                belonging to the LAM domain. Defaults to None.
+            trim_edge (int, optional): Number of grid points to trim from the edges.
+                Defaults to None.
+            lcc_info (dict, optional): Lambert Conformal Conic projection details.
+                Required for LAM and nested-lam model types.
+            horizontal_regrid_kwargs (dict, optional): Options passed to
+                ufs2arco.transforms.horizontal_regrid. Required when
+                model_type="nested-global".
+            anemoi_reference_dataset_kwargs (dict, optional): kwargs passed to
+                anemoi.datasets.open_dataset to retrieve the global mask needed
+                for conservative regridding. Required when model_type="nested-global"
+                and the target grid file does not already contain a mask.
+        \b
+        forecast2 (dict): Config for the prediction forecast. Same keys as forecast1.
+        \b
+        keep_t0 (bool, optional): If True, keeps the initial condition time (t0)
+            as a separate dimension in the output file. Defaults to False.
+
+    \b
+    Config Args common to spatial.py:
+        output_path (str): The directory where the output NetCDF files will be saved.
+        \b
+        start_date (str): The first initial condition date to process.
+        \b
+        end_date (str): The last initial condition date to process.
+        \b
+        freq (str): Frequency string for the date range (e.g., "6h").
+        \b
+        lead_time (int): Length of forecast in hours.
+        \b
+        levels (list, optional): A list of vertical levels to subset from both
+            forecasts. Defaults to None.
+        \b
+        vars_of_interest (list[str], optional): A list of variable names to include
+            from both forecasts. Defaults to None.
+        \b
+        use_mpi (bool, optional): If True, distribute initialization dates across MPI ranks.
+            Launch with ``srun --ntasks=N`` to use N ranks. Defaults to False.
+        \b
+        log_path (str, optional): When using MPI, the directory where per-rank log files
+            are saved. Defaults to "eagle-logs/spatial_forecast".
+    """
+
+
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
 def spectra(config_file):

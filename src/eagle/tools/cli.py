@@ -120,6 +120,15 @@ metrics.help = """Compute grid cell area weighted RMSE and MAE.
         output_path (str): The directory where the output NetCDF files will be saved, as
             f"{output_path}/rmse.{model_type}.nc" and
             f"{output_path}/mae.{model_type}.nc"
+            Subregion metrics (see ``subregions`` below) are written with a
+            region suffix, e.g. f"{output_path}/rmse.{model_type}.{region}.nc".
+        \b
+        subregions (dict, optional): Geographic subregions for regional metrics, in
+            addition to the full-field ("global") metrics. Each entry maps a name to
+            latitude and/or longitude bounds, e.g.
+            ``{conus: {latitude: [25, 50], longitude: [-125, -65]}}``. Longitude
+            bounds are given in [-180, 180]. A mask file is written to
+            f"{output_path}/subregions.{model_type}.nc". Defaults to None.
         \b
         start_date (str): The first initial condition date to process, in any format
             interpretable by pandas.date_range.

@@ -64,6 +64,64 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
     return area_weight
 
 
+def _parse_subregions(config):
+    """Parse subregion definitions from config.
+
+    Returns dict of {name: {"latitude": (min, max), "longitude": (min, max)}}.
+    Longitude bounds are accepted in [-180, 180] and converted to [0, 360] to
+    match the forecast/verification grid convention.
+    """
+    raw = config.get("subregions", {})
+    subregions = {}
+    for name, bounds in raw.items():
+        if "latitude" not in bounds and "longitude" not in bounds:
+            raise ValueError(f"Subregion '{name}' must have at least 'latitude' or 'longitude'")
+        lat = tuple(bounds["latitude"]) if "latitude" in bounds else (-90, 90)
+        lon = bounds.get("longitude", [0, 359.99])
+        lon = tuple(ll % 360 for ll in lon)
+        subregions[name] = {"latitude": lat, "longitude": lon}
+    return subregions
+
+
+def _subregion_mask(latitude, longitude, bounds):
+    """Boolean DataArray selecting grid cells within geographic bounds.
+
+    Handles longitude wrapping around 0/360.
+    """
+    lat_min, lat_max = bounds["latitude"]
+    lon_min, lon_max = bounds["longitude"]
+    lat_mask = (latitude >= lat_min) & (latitude <= lat_max)
+    if lon_min <= lon_max:
+        lon_mask = (longitude >= lon_min) & (longitude <= lon_max)
+    else:
+        lon_mask = (longitude >= lon_min) | (longitude <= lon_max)
+    return lat_mask & lon_mask
+
+
+def _get_latlon(weights, fallback_ds):
+    """Get latitude/longitude coords from the weights array, else the dataset.
+
+    For equal-area (LAM) grids ``weights`` is a scalar, so fall back to the
+    dataset's coordinates.
+    """
+    if isinstance(weights, xr.DataArray) and "latitude" in weights.coords:
+        return weights["latitude"], weights["longitude"]
+    return fallback_ds["latitude"], fallback_ds["longitude"]
+
+
+def _subregion_weights(weights, fallback_ds, bounds):
+    """Mask the area weights to a subregion and renormalize to unit mean.
+
+    Renormalizing so the masked weights have unit mean *over the region* lets
+    the existing metric functions' ``.mean()`` produce the correct
+    area-weighted mean over the subregion (NaNs outside are skipped).
+    """
+    latitude, longitude = _get_latlon(weights, fallback_ds)
+    mask = _subregion_mask(latitude, longitude, bounds)
+    w_sub = xr.where(mask, weights, np.nan)
+    return w_sub / w_sub.mean()
+
+
 def postprocess(xds):
 
     t0 = pd.Timestamp(xds["time"][0].values)
@@ -190,18 +248,35 @@ def main(config):
         regrid_kwargs=target_regrid_kwargs,
     )
 
+    # Subregions: "global" (full field, no suffix) plus any user-defined regions
+    subregions = _parse_subregions(config)
+    region_names = ["global"] + list(subregions.keys())
+    region_weights = {"global": latlon_weights}
+    for sr_name, sr_bounds in subregions.items():
+        region_weights[sr_name] = _subregion_weights(latlon_weights, vds, sr_bounds)
+
+    if subregions:
+        logger.info(f"Subregions: {list(subregions.keys())}")
+        if topo.is_root:
+            latitude, longitude = _get_latlon(latlon_weights, vds)
+            srds = xr.Dataset({
+                sr_name: xr.where(_subregion_mask(latitude, longitude, sr_bounds), 1.0, np.nan)
+                for sr_name, sr_bounds in subregions.items()
+            })
+            fname = f"{config['output_path']}/subregions.{model_type}.nc"
+            srds.to_netcdf(fname)
+            logger.info(f"Stored subregion masks at {fname}")
+
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
     n_dates = len(dates)
     n_batches = int(np.ceil(n_dates / topo.size))
 
-    rmse_container = list()
-    mae_container = list()
-
+    metric_names = ["rmse", "mae"]
     if is_ensemble:
-        spread_container = list()
-        fcrps_container = list()
-        rmse_ensmean_container = list()
-        mae_ensmean_container = list()
+        metric_names += ["spread", "fcrps", "rmse_ensmean", "mae_ensmean"]
+
+    # Containers nested by region: {region: {metric: [per-IC datasets]}}
+    containers = {rn: {m: [] for m in metric_names} for rn in region_names}
 
     logger.info(f"Computing Error Metrics")
     logger.info(f"Initial Conditions:\n{dates}")
@@ -260,58 +335,55 @@ def main(config):
         if target_regrid_kwargs is not None:
             tds = horizontal_regrid(tds, **target_regrid_kwargs)
 
-        # Compute per-member RMSE/MAE
-        member_rmse_list = []
-        member_mae_list = []
-        for member in range(n_members):
-            member_rmse_list.append(rmse(target=tds, prediction=member_fds_list[member], weights=latlon_weights, **mkw))
-            member_mae_list.append(mae(target=tds, prediction=member_fds_list[member], weights=latlon_weights, **mkw))
-
-        if is_ensemble:
-            rmse_container.append(xr.concat(member_rmse_list, dim="member"))
-            mae_container.append(xr.concat(member_mae_list, dim="member"))
-        else:
-            rmse_container.append(member_rmse_list[0])
-            mae_container.append(member_mae_list[0])
-
-        # Ensemble-only metrics
         if is_ensemble:
             ensemble_fds = xr.concat(member_fds_list, dim="member")
-            spread_container.append(spread(ensemble_fds, weights=latlon_weights))
-            fcrps_container.append(fcrps(target=tds, ensemble=ensemble_fds, weights=latlon_weights))
-
             ensmean = ensemble_fds.mean("member")
-            rmse_ensmean_container.append(rmse(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
-            mae_ensmean_container.append(mae(target=tds, prediction=ensmean, weights=latlon_weights, **mkw))
+
+        # Compute metrics for the full field ("global") and each subregion, by
+        # re-using the same metric functions with region-masked area weights.
+        for rn in region_names:
+            weights = region_weights[rn]
+
+            member_rmse_list = []
+            member_mae_list = []
+            for member in range(n_members):
+                member_rmse_list.append(rmse(target=tds, prediction=member_fds_list[member], weights=weights, **mkw))
+                member_mae_list.append(mae(target=tds, prediction=member_fds_list[member], weights=weights, **mkw))
+
+            if is_ensemble:
+                containers[rn]["rmse"].append(xr.concat(member_rmse_list, dim="member"))
+                containers[rn]["mae"].append(xr.concat(member_mae_list, dim="member"))
+            else:
+                containers[rn]["rmse"].append(member_rmse_list[0])
+                containers[rn]["mae"].append(member_mae_list[0])
+
+            # Ensemble-only metrics
+            if is_ensemble:
+                containers[rn]["spread"].append(spread(ensemble_fds, weights=weights))
+                containers[rn]["fcrps"].append(fcrps(target=tds, ensemble=ensemble_fds, weights=weights))
+                containers[rn]["rmse_ensmean"].append(rmse(target=tds, prediction=ensmean, weights=weights, **mkw))
+                containers[rn]["mae_ensmean"].append(mae(target=tds, prediction=ensmean, weights=weights, **mkw))
 
         logger.info(f"Done with {st0}")
     logger.info(f"Done Computing Metrics")
 
     logger.info(f"Gathering Results on Root Process")
-    containers = {"rmse": rmse_container, "mae": mae_container}
-    if is_ensemble:
-        containers.update({
-            "spread": spread_container,
-            "fcrps": fcrps_container,
-            "rmse_ensmean": rmse_ensmean_container,
-            "mae_ensmean": mae_ensmean_container,
-        })
-
-    for name in containers:
-        containers[name] = topo.gather(containers[name])
+    for rn in region_names:
+        for name in metric_names:
+            containers[rn][name] = topo.gather(containers[rn][name])
 
     if topo.is_root:
-        for name in containers:
-            c = containers[name]
-            if config["use_mpi"]:
-                c = [xds for sublist in c for xds in sublist]
-            c = sorted(c, key=lambda xds: xds.coords["t0"])
-            containers[name] = xr.concat(c, dim="t0")
-
         logger.info("Combining & Storing Results")
-        for varname, xda in containers.items():
-            fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
-            xda.to_netcdf(fname)
-            logger.info(f"Stored result: {fname}")
+        for rn in region_names:
+            suffix = "" if rn == "global" else f".{rn}"
+            for name in metric_names:
+                c = containers[rn][name]
+                if config["use_mpi"]:
+                    c = [xds for sublist in c for xds in sublist]
+                c = sorted(c, key=lambda xds: xds.coords["t0"])
+                c = xr.concat(c, dim="t0")
+                fname = f"{config['output_path']}/{name}.{model_type}{suffix}.nc"
+                c.to_netcdf(fname)
+                logger.info(f"Stored result: {fname}")
 
         logger.info("Done Storing Error Metrics")

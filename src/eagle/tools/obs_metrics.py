@@ -13,7 +13,10 @@ import pandas as pd
 import xesmf
 import nnja_ai
 
-from ufs2arco.transforms.horizontal_regrid import maybe_make_dataset_c_contiguous
+from ufs2arco.transforms.horizontal_regrid import (
+    maybe_make_dataset_c_contiguous,
+    horizontal_regrid,
+)
 
 from eagle.tools.data import open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.metrics import postprocess
@@ -744,7 +747,7 @@ def _load_forecast(config, t0, member, levels, derived_var_names=None):
         fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
         if config.get("n_members", 1) > 1:
             fname = fname.replace(".nc", f".member{member:03d}.nc")
-        return open_anemoi_inference_dataset(
+        fds = open_anemoi_inference_dataset(
             fname,
             model_type=model_type,
             lam_index=config.get("lam_index", None),
@@ -758,7 +761,7 @@ def _load_forecast(config, t0, member, levels, derived_var_names=None):
             rename_to_longnames=True,
         )
     else:
-        return open_forecast_zarr_dataset(
+        fds = open_forecast_zarr_dataset(
             config["forecast_path"],
             t0=t0,
             trim_edge=config.get("trim_forecast_edge", None),
@@ -769,6 +772,13 @@ def _load_forecast(config, t0, member, levels, derived_var_names=None):
             reshape_cell_to_2d=True,
             rename_to_longnames=True,
         )
+
+    # The nested-global path regrids inside open_anemoi_inference_dataset; all
+    # other model types are regridded here to a common target grid on the fly.
+    if forecast_regrid_kwargs is not None and model_type != "nested-global":
+        fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
+
+    return fds
 
 
 def main(config):
@@ -798,10 +808,11 @@ def main(config):
     # Does the user want to evaluate on a different grid?
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
-    do_any_regridding = (target_regrid_kwargs is not None) or \
-            ((forecast_regrid_kwargs is not None) and (model_type != "nested-global"))
-    if do_any_regridding:
-        raise NotImplementedError
+    if target_regrid_kwargs is not None:
+        raise NotImplementedError(
+            "target_regrid_kwargs is not supported for obs-metrics "
+            "(verification target is point observations, not a grid)"
+        )
 
     if model_type == "nested-global":
         forecast_regrid_kwargs["target_grid_path"], _ = prepare_regrid_target_mask(

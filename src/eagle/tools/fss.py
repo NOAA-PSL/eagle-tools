@@ -245,7 +245,7 @@ def main(config):
     thresholds = config["thresholds"]
     percentiles = config.get("percentiles", None)
     grid_spacing_km = config["grid_spacing_km"]
-    radii_gp = _radii_in_gridpoints(config["radius"], grid_spacing_km)
+    radii_gp = _radii_in_gridpoints(config["radius_km"], grid_spacing_km)
 
     logger.info(
         f"FSS setup: thresholds={thresholds}, percentiles={percentiles}, "

@@ -230,8 +230,8 @@ fss.help = """Compute the deterministic Fractions Skill Score (FSS).
             rainfall-amount bias to isolate spatial accuracy. If omitted, only
             threshold FSS is done.
         \b
-        radius (float | list[float]): Neighborhood half-width radius in km. A window
-            of side 2*round(radius/grid_spacing_km)+1 grid points is used. May be a
+        radius_km (float | list[float]): Neighborhood half-width radius in km. A window
+            of side 2*round(radius_km/grid_spacing_km)+1 grid points is used. May be a
             scalar or a list; the output carries a radius dimension.
         \b
         grid_spacing_km (float, optional): Grid spacing in km, used to convert radius

@@ -1,4 +1,5 @@
 import logging
+import os
 
 import numpy as np
 from scipy import ndimage
@@ -252,8 +253,19 @@ def main(config):
                 load=True,
             )
         else:
+            # A single forecast zarr, or (when lead_time is a list) one store
+            # per lead time whose paths come from a ``{fhr:02d}`` template and
+            # are concatenated along fhr.
+            lead_time = config["lead_time"]
+            if isinstance(lead_time, (list, tuple)):
+                fpath = [
+                    os.path.expandvars(config["forecast_path"].format(fhr=h))
+                    for h in lead_time
+                ]
+            else:
+                fpath = config["forecast_path"]
             fds = open_forecast_zarr_dataset(
-                config["forecast_path"],
+                fpath,
                 t0=t0,
                 vars_of_interest=[fcst_precip],
                 trim_edge=trim_forecast_edge,

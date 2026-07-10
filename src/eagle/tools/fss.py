@@ -5,7 +5,11 @@ from scipy import ndimage
 import xarray as xr
 import pandas as pd
 
-from eagle.tools.data import open_anemoi_inference_dataset, trim_xarray_edge
+from eagle.tools.data import (
+    open_anemoi_inference_dataset,
+    open_forecast_zarr_dataset,
+    trim_xarray_edge,
+)
 
 logger = logging.getLogger("eagle.tools")
 
@@ -178,7 +182,8 @@ def main(config):
     fcst_precip = fcfg["precip_varname"]
     lam_index = fcfg.get("lam_index", None)
     lcc_info = fcfg.get("lcc_info", None)
-    trim_forecast_edge = fcfg.get("trim_forecast_edge", None)
+    from_anemoi = fcfg.get("from_anemoi", True)
+    trim_forecast_edge = fcfg.get("trim_edge", None)
 
     forecast_hours = config["forecast_hours"]
     thresholds = config["thresholds"]
@@ -231,18 +236,31 @@ def main(config):
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
 
-        # Load forecast, reshaped to (time, y, x)
-        fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
-        fds = open_anemoi_inference_dataset(
-            fname,
-            model_type=model_type,
-            lam_index=lam_index,
-            lcc_info=lcc_info,
-            trim_edge=trim_forecast_edge,
-            vars_of_interest=[fcst_precip],
-            reshape_cell_to_2d=True,
-            load=True,
-        )
+        # Load forecast, reshaped to (time, y, x). Either an anemoi inference
+        # NetCDF (one file per initial condition) or a forecast zarr store
+        # holding all initial conditions along a t0 dim.
+        if from_anemoi:
+            fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+            fds = open_anemoi_inference_dataset(
+                fname,
+                model_type=model_type,
+                lam_index=lam_index,
+                lcc_info=lcc_info,
+                trim_edge=trim_forecast_edge,
+                vars_of_interest=[fcst_precip],
+                reshape_cell_to_2d=True,
+                load=True,
+            )
+        else:
+            fds = open_forecast_zarr_dataset(
+                config["forecast_path"],
+                t0=t0,
+                vars_of_interest=[fcst_precip],
+                trim_edge=trim_forecast_edge,
+                reshape_cell_to_2d=True,
+                lcc_info=lcc_info,
+                load=True,
+            )
         fds = fds.rename({fcst_precip: PRECIP})
 
         # Select the requested lead times and matching verification valid times

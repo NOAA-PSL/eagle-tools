@@ -207,7 +207,10 @@ fss.help = """Compute the deterministic Fractions Skill Score (FSS).
         \b
         output_path (str): Directory where the output is saved, as
             f"{output_path}/fss.{model_type}.nc". The result has data_vars
-            fss, mse, mse_ref with dims (t0, fhr, threshold, radius).
+            fss, mse, mse_ref with dims (t0, fhr, threshold, radius). If
+            percentiles are configured, a second file
+            f"{output_path}/fss.percentile.{model_type}.nc" is written with
+            data_vars pfss, pmse, pmse_ref and dims (t0, fhr, percentile, radius).
         \b
         lead_time (int): Forecast length in hours, used only to build the forecast
             filename.
@@ -217,6 +220,15 @@ fss.help = """Compute the deterministic Fractions Skill Score (FSS).
         \b
         thresholds (list[float]): Exceedance thresholds, in the units of the fields
             (e.g. mm of precip).
+        \b
+        percentiles (list[float], optional): If present, additionally compute a
+            percentile-threshold FSS (Roberts & Lean, 2008). Each field is
+            binarized at its own P-th percentile value, quantile(P/100), computed
+            separately for the forecast and observations over valid, wet (> 0) grid
+            points at each lead time (wet-only avoids the dry-mass degeneracy where
+            low percentiles land at 0 mm); deriving the thresholds per field removes
+            rainfall-amount bias to isolate spatial accuracy. If omitted, only
+            threshold FSS is done.
         \b
         radius (float | list[float]): Neighborhood half-width radius in km. A window
             of side 2*round(radius/grid_spacing_km)+1 grid points is used. May be a

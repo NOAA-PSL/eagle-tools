@@ -64,6 +64,33 @@ def _neighborhood_fraction(binary, valid, size):
     return num / den.where(den > eps)
 
 
+def _fss_from_binaries(fbin, obin, valid, radii_gp):
+    """Compute FSS from pre-built binary exceedance fields, looping over radii.
+
+    Shared core for both the threshold and percentile variants: they differ only
+    in how ``fbin``/``obin`` are constructed. Any extra dims carried on the
+    binaries (e.g. ``threshold`` or ``percentile``) pass straight through.
+
+    Returns:
+        xr.Dataset: ``fss``, ``mse``, ``mse_ref`` with dims
+        ``(<extra dims>, radius)``.
+    """
+    per_radius = []
+    for radius_km, size in radii_gp:
+        M = _neighborhood_fraction(fbin, valid, size)
+        O = _neighborhood_fraction(obin, valid, size)
+
+        mse = ((M - O) ** 2).mean(("y", "x"))
+        mse_ref = (M**2 + O**2).mean(("y", "x"))
+        fss = 1 - mse / mse_ref.where(mse_ref > 0)
+
+        ds = xr.Dataset({"fss": fss, "mse": mse, "mse_ref": mse_ref})
+        ds = ds.expand_dims(radius=[radius_km])
+        per_radius.append(ds)
+
+    return xr.concat(per_radius, dim="radius")
+
+
 def fractions_skill_score(fcst, obs, thresholds, radii_gp):
     """Deterministic Fractions Skill Score (Roberts & Lean, 2008).
 
@@ -84,20 +111,48 @@ def fractions_skill_score(fcst, obs, thresholds, radii_gp):
     fbin = ((fcst >= txda) & (valid > 0)).astype(float)
     obin = ((obs >= txda) & (valid > 0)).astype(float)
 
-    per_radius = []
-    for radius_km, size in radii_gp:
-        M = _neighborhood_fraction(fbin, valid, size)
-        O = _neighborhood_fraction(obin, valid, size)
+    return _fss_from_binaries(fbin, obin, valid, radii_gp)
 
-        mse = ((M - O) ** 2).mean(("y", "x"))
-        mse_ref = (M**2 + O**2).mean(("y", "x"))
-        fss = 1 - mse / mse_ref.where(mse_ref > 0)
 
-        ds = xr.Dataset({"fss": fss, "mse": mse, "mse_ref": mse_ref})
-        ds = ds.expand_dims(radius=[radius_km])
-        per_radius.append(ds)
+def fractions_skill_score_percentile(fcst, obs, percentiles, radii_gp):
+    """Percentile-threshold Fractions Skill Score (Roberts & Lean, 2008).
 
-    return xr.concat(per_radius, dim="radius")
+    Each field is binarized at its own ``P``-th percentile (``quantile(P/100)``),
+    computed independently for the forecast and observations over the valid,
+    *wet* (``> 0``) grid points at each lead time. Deriving the thresholds per
+    field removes any rainfall-amount bias, isolating spatial accuracy.
+
+    The percentile is taken over wet points only because precipitation has a
+    large dry (zero) point-mass: including it would put the low/mid percentiles
+    exactly at 0 mm, so ``field >= 0`` would flag every cell and the score would
+    collapse to ~1. Over wet points, ``P=50`` is the median of the *raining*
+    cells. The exceedance test itself still uses all valid points.
+
+    Args:
+        fcst, obs (xr.DataArray): forecast and verification fields with dims
+            ``(fhr, y, x)``.
+        percentiles (Sequence[float]): percentile ranks in ``[0, 100]``.
+        radii_gp (Sequence[tuple[float, int]]): ``(radius_km, window_size)`` pairs.
+
+    Returns:
+        xr.Dataset: ``pfss``, ``pmse``, ``pmse_ref`` with dims
+        ``(fhr, percentile, radius)``.
+    """
+    valid = (np.isfinite(fcst) & np.isfinite(obs)).astype(float)
+
+    # Per-field exceedance values from the valid, wet (> 0) points only, one per
+    # (fhr, P). Excluding the dry mass keeps low/mid percentiles meaningful.
+    qs = [p / 100 for p in percentiles]
+    fq = fcst.where((valid > 0) & (fcst > 0)).quantile(qs, dim=("y", "x"))
+    oq = obs.where((valid > 0) & (obs > 0)).quantile(qs, dim=("y", "x"))
+    fq = fq.rename({"quantile": "percentile"}).assign_coords(percentile=list(percentiles))
+    oq = oq.rename({"quantile": "percentile"}).assign_coords(percentile=list(percentiles))
+
+    fbin = ((fcst >= fq) & (valid > 0)).astype(float)
+    obin = ((obs >= oq) & (valid > 0)).astype(float)
+
+    ds = _fss_from_binaries(fbin, obin, valid, radii_gp)
+    return ds.rename({"fss": "pfss", "mse": "pmse", "mse_ref": "pmse_ref"})
 
 
 #: Order in which the per-axis ``trim_edge`` dict is flattened for
@@ -188,11 +243,12 @@ def main(config):
 
     forecast_hours = config["forecast_hours"]
     thresholds = config["thresholds"]
+    percentiles = config.get("percentiles", None)
     grid_spacing_km = config["grid_spacing_km"]
     radii_gp = _radii_in_gridpoints(config["radius"], grid_spacing_km)
 
     logger.info(
-        f"FSS setup: thresholds={thresholds}, "
+        f"FSS setup: thresholds={thresholds}, percentiles={percentiles}, "
         f"radii (km, window)={radii_gp}, forecast_hours={forecast_hours}"
     )
 
@@ -224,6 +280,7 @@ def main(config):
     n_batches = int(np.ceil(n_dates / topo.size))
 
     container = []
+    pcontainer = [] if percentiles is not None else None
 
     logger.info("Computing Fractions Skill Score")
     logger.info(f"Initial Conditions:\n{dates}")
@@ -299,29 +356,43 @@ def main(config):
         fcst = fcst.rename({"time": "fhr"}).assign_coords(fhr=fhr)
         obs = obs.rename({"time": "fhr"}).assign_coords(fhr=fhr)
 
-        result = fractions_skill_score(fcst, obs, thresholds, radii_gp)
+        # Per-IC coords: keep t0 so the full (t0, fhr, ..., radius) sample is
+        # retained for aggregation and significance testing downstream.
+        lead_coord = (fhr * np.timedelta64(1, "h")).astype("timedelta64[ns]")
 
-        # Per-IC coords: keep t0 so the full (t0, fhr, threshold, radius) sample
-        # is retained for aggregation and significance testing downstream.
-        result = result.expand_dims(t0=[t0])
-        result = result.assign_coords(
-            lead_time=("fhr", (fhr * np.timedelta64(1, "h")).astype("timedelta64[ns]"))
-        )
+        def _tag(ds):
+            return ds.expand_dims(t0=[t0]).assign_coords(lead_time=("fhr", lead_coord))
+
+        result = _tag(fractions_skill_score(fcst, obs, thresholds, radii_gp))
         container.append(result)
+
+        if percentiles is not None:
+            presult = _tag(
+                fractions_skill_score_percentile(fcst, obs, percentiles, radii_gp)
+            )
+            pcontainer.append(presult)
 
         logger.info(f"Done with {st0}")
     logger.info("Done Computing FSS")
 
     logger.info("Gathering Results on Root Process")
     container = topo.gather(container)
+    if percentiles is not None:
+        pcontainer = topo.gather(pcontainer)
+
+    def _combine_and_store(gathered, fname):
+        if config["use_mpi"]:
+            gathered = [xds for sublist in gathered for xds in sublist]
+        gathered = sorted(gathered, key=lambda xds: xds.coords["t0"].values)
+        xr.concat(gathered, dim="t0").to_netcdf(fname)
+        logger.info(f"Stored result: {fname}")
 
     if topo.is_root:
         logger.info("Combining & Storing Results")
-        if config["use_mpi"]:
-            container = [xds for sublist in container for xds in sublist]
-        container = sorted(container, key=lambda xds: xds.coords["t0"].values)
-        result = xr.concat(container, dim="t0")
-        fname = f"{config['output_path']}/fss.{model_type}.nc"
-        result.to_netcdf(fname)
-        logger.info(f"Stored result: {fname}")
+        _combine_and_store(container, f"{config['output_path']}/fss.{model_type}.nc")
+        if percentiles is not None:
+            _combine_and_store(
+                pcontainer,
+                f"{config['output_path']}/fss.percentile.{model_type}.nc",
+            )
         logger.info("Done Storing FSS")

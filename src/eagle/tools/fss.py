@@ -45,10 +45,18 @@ def _neighborhood_fraction(binary, valid, size):
     (exceedances / valid points) within each window. This shrinks the window at
     the domain edge and around any NaNs, matching Roberts & Lean's in-domain
     fraction. Windows with no valid points become NaN and are skipped later.
+
+    ``den`` is a fraction in [0, 1]; the smallest *legitimate* nonzero value is
+    ``1 / size**2`` (a single valid cell in the window). ``uniform_filter``
+    leaves ~1e-15 roundoff where the true value is zero, so we threshold at half
+    the smallest real fraction. A plain ``den > 0`` guard would instead let tiny
+    positive roundoff through and divide near-zero ``num`` by it, yielding wild
+    (even negative) "fractions" that corrupt the score.
     """
     num = _box_mean(binary * valid, size)
     den = _box_mean(valid, size)
-    return num / den.where(den > 0)
+    eps = 0.5 / (size * size)
+    return num / den.where(den > eps)
 
 
 def fractions_skill_score(fcst, obs, thresholds, radii_gp):

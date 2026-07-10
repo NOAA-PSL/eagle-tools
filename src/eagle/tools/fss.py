@@ -6,6 +6,8 @@ from scipy import ndimage
 import xarray as xr
 import pandas as pd
 
+from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
+
 from eagle.tools.data import (
     open_anemoi_inference_dataset,
     open_forecast_zarr_dataset,
@@ -235,11 +237,15 @@ def main(config):
     fcfg = config["forecast_dataset"]
 
     model_type = fcfg["model_type"]
+    if model_type == "nested-global":
+        raise NotImplementedError
     fcst_precip = fcfg["precip_varname"]
     lam_index = fcfg.get("lam_index", None)
     lcc_info = fcfg.get("lcc_info", None)
     from_anemoi = fcfg.get("from_anemoi", True)
     trim_forecast_edge = fcfg.get("trim_edge", None)
+    forecast_regrid_kwargs = fcfg.get("regrid_kwargs", None)
+    trim_after_regrid = fcfg.get("trim_after_regrid", None)
 
     forecast_hours = config["forecast_hours"]
     thresholds = config["thresholds"]
@@ -330,7 +336,30 @@ def main(config):
                 lcc_info=lcc_info,
                 load=True,
             )
+
         fds = fds.rename({fcst_precip: PRECIP})
+
+        if forecast_regrid_kwargs is not None:
+            fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
+
+        # Optionally trim the forecast edges after regridding (e.g. to drop
+        # conservative-regridding boundary artifacts on the target grid). The
+        # regridded grid carries only 2D lat/lon coords, so give it integer x/y
+        # index coords for trim_xarray_edge to slice on. The verification and
+        # mask must be trimmed to match via verification_dataset.trim_edge; the
+        # (y, x) size assertion below enforces that alignment.
+        if trim_after_regrid is not None:
+            if "x" not in fds.coords or "y" not in fds.coords:
+                fds = fds.assign_coords(
+                    x=("x", np.arange(fds.sizes["x"])),
+                    y=("y", np.arange(fds.sizes["y"])),
+                )
+            fds = trim_xarray_edge(
+                fds,
+                lcc_info=lcc_info,
+                trim_edge=trim_after_regrid,
+                stack_order=list(STACK_ORDER),
+            )
 
         # Select the requested lead times and matching verification valid times
         target_times = [t0 + pd.Timedelta(hours=h) for h in forecast_hours]

@@ -397,6 +397,124 @@ spectra.help = """Compute the Power Spectrum averaged over all initial condition
             trim from the edges of the forecast dataset. Defaults to None.
     """
 
+@cli.command("performance-heatmap")
+@click.argument('config_file', type=click.Path(exists=True))
+def performance_heatmap(config_file):
+    """
+    Plot regional model-performance improvement heatmaps.
+    """
+    from eagle.tools.performance_heatmap import main
+    main(config_file)
+
+performance_heatmap.help = """Plot regional model-performance improvement heatmaps.
+
+    \b
+    This is one of the two supported scorecard performance plot commands
+    (heatmap and violin). It compares a candidate model against a baseline
+    model using metric NetCDF files, commonly RMSE files from obs_metrics or
+    scorecard workflows. The plot is controlled by a YAML or JSON config file.
+
+    \b
+    Typical use:
+        eagle-tools performance-heatmap src/eagle/tools/config/performance_heatmap.yaml
+
+    \b
+    Built-in model keys:
+        nested_eagle_global, nested_eagle_lam, gfs, aifs, aigfs, ecmwf_ifs, hrrr
+
+    \b
+    Config Args:
+        input_path (str): Root directory containing one subdirectory per model.
+        \b
+        output_path (str): Directory where heatmap PNG files are written.
+        \b
+        models (dict): Model definitions with subdir, label, color, model_type,
+            and file patterns. If subdir is omitted, the model key is used.
+            A full path can still be provided to override input_path.
+            Patterns may use {metric}, {model}, {model_type}, and {region}.
+        \b
+        candidate_model (str): Model key for the model being evaluated.
+        \b
+        baseline_model (str): Model key used as the baseline.
+        \b
+        regions (list[dict]): Regions to plot. Each region needs a key and may
+            include title and aliases for matching region coordinates.
+        \b
+        variables (list[dict]): Variable groups and rows. Each row needs var,
+            label, and levels. Use levels: null for surface variables.
+        \b
+        forecast_hours (list[int], optional): Forecast hours to plot. If omitted,
+            days are converted to 24-hour intervals.
+        \b
+        start_date/end_date (str, optional): Date window for selecting t0 values.
+        \b
+        years/months (list[int], optional): Year and month filters for t0 values.
+        \b
+        require_exact_time_match (bool, optional): If True, compare only exact
+            overlapping t0 and fhr samples across selected models. Defaults to True.
+        \b
+        output (str, optional): Output image filename. If omitted, the filename
+            includes plot type, regions, models, metric, and lead range.
+    """
+
+
+@cli.command("performance-violin")
+@click.argument('config_file', type=click.Path(exists=True))
+def performance_violin(config_file):
+    """
+    Plot model-performance violin comparisons.
+    """
+    from eagle.tools.performance_violin import main
+    main(config_file)
+
+performance_violin.help = """Plot model-performance violin comparisons.
+
+    \b
+    This is one of the two supported scorecard performance plot commands
+    (heatmap and violin). It pools selected variables, levels, lead times, and
+    regions into normalized model-response distributions. It writes a PNG and
+    a summary CSV.
+
+    \b
+    Typical use:
+        eagle-tools performance-violin src/eagle/tools/config/performance_violin.yaml
+
+    \b
+    Built-in model keys:
+        nested_eagle_global, nested_eagle_lam, gfs, aifs, aigfs, ecmwf_ifs, hrrr
+
+    \b
+    Config Args:
+        input_path (str): Root directory containing one subdirectory per model.
+        \b
+        output_path (str): Directory where violin PNG files and summary CSVs are written.
+        \b
+        models (dict): Model definitions with subdir, label, color, model_type,
+            and file patterns. If subdir is omitted, the model key is used.
+            A full path can still be provided to override input_path.
+            Patterns may use {metric}, {model}, {model_type}, and {region}.
+        \b
+        plots (list[dict], optional): One or more violin plot definitions. Each
+            plot controls selected models, regions, lead_hours, title, and output.
+        \b
+        variables (list[dict]): Variable groups and rows. Each row needs var,
+            label, and levels. Use levels: null for surface variables.
+        \b
+        equal_samples (bool, optional): If True, each variable/level uses the
+            same number of samples from each selected model before normalization.
+            Defaults to True.
+        \b
+        start_date/end_date (str, optional): Date window for selecting t0 values.
+        \b
+        years/months (list[int], optional): Year and month filters for t0 values.
+        \b
+        require_exact_time_match (bool, optional): If True, compare only exact
+            overlapping t0 and fhr samples across selected models. Defaults to True.
+        \b
+        output (str, optional): Output image filename. If omitted, the filename
+            includes plot type, regions, models, metric, and lead range.
+    """
+
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
 def figures(config_file):

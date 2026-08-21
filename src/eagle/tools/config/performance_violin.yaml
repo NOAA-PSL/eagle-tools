@@ -1,0 +1,57 @@
+# Community-friendly scorecard violin config.
+# This is one of the only two scorecard plot types added here:
+# heatmap and violin.
+#
+# How to use:
+#   eagle-tools performance-violin path/to/this_config.yaml
+#
+# Most users only need to edit input_path and output_path.
+# Add a models: block only if your directory names differ from the defaults.
+#
+# Built-in model keys:
+#   nested_eagle_global, nested_eagle_lam, gfs, aifs, aigfs, ecmwf_ifs, hrrr
+#
+# Expected layout:
+#   input_path/
+#     nested_eagle_global_2025/
+#     nested_eagle_lam_2025/
+#     gfs_2025/
+#     hrrr_2025/
+
+metric: rmse
+input_path: /scratch3/NAGAPE/epic/role-epic/EAGLE/eagle_models_vv/scorecard_system/data/new_data
+output_path: /scratch3/NAGAPE/epic/role-epic/EAGLE/eagle_models_vv/scorecard_system/outputs
+
+# Optional temporal selection. All selected models are matched on the exact
+# same t0 and forecast-hour coordinates after these filters are applied.
+# Use any combination:
+# start_date: "2025-01-01"
+# end_date: "2025-12-31"
+# years: [2025]
+# months: [1, 2, 12]
+require_exact_time_match: true
+
+# The standard model directory names, labels, colors, filename patterns,
+# variables, levels, and region labels have built-in defaults.
+# Example directory override:
+# models:
+#   hrrr:
+#     directory: my_hrrr_scores
+
+plots:
+  # Add/remove models from a violin by editing the models list.
+  - name: all_response_global_conus_all_models_no_hrrr_rmse
+    title: "Forecast RMSE Guidance: All Responses"
+    subtitle: "Global and CONUS | All global models except HRRR | Forecast Hours 24-240"
+    lead_hours: [24, 240]
+    regions: [global, conus]
+    models: [nested_eagle_global, gfs, aigfs, aifs]
+    output: violin_regions-global-conus_models-nested_eagle_global-gfs-aigfs-aifs_rmse_f024-f240.png
+
+  - name: all_response_conus_gfs_nested_hrrr_48h_rmse
+    title: "Forecast RMSE Guidance: All Responses"
+    subtitle: "CONUS only | GFS, Nested-EAGLE CONUS, and HRRR | Forecast Hours 0-48"
+    lead_hours: [0, 48]
+    regions: [conus]
+    models: [nested_eagle_lam, gfs, hrrr]
+    output: violin_regions-conus_models-nested_eagle_lam-gfs-hrrr_rmse_f000-f048.png

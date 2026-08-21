@@ -135,3 +135,101 @@ between `start_date` and `end_date` get shown in the movie.
 eagle-tools figures config.yaml
 eagle-tools movies config.yaml
 ```
+
+### Compare Model Performance
+
+Create only two scorecard-style model performance plot types from metric
+NetCDF files: regional improvement heatmaps and all-response violin plots.
+
+```
+eagle-tools performance-heatmap config.yaml
+eagle-tools performance-violin config.yaml
+```
+
+Example config files are included in `src/eagle/tools/config/performance_heatmap.yaml`
+and `src/eagle/tools/config/performance_violin.yaml`.
+These configs use one `input_path` root and one `output_path`; each model only
+needs a directory name for the common scorecard layout. Standard model labels,
+colors, filename patterns, regions, variables, and levels have built-in
+defaults, and can be overridden in YAML when needed.
+
+Expected input layout:
+
+```
+new_data/
+  nested_eagle_global_2025/
+    rmse.convobs.nested-global.nc
+    rmse.convobs.nested-global.conus.nc
+  gfs_2025/
+    rmse.convobs.global.nc
+    rmse.convobs.global.conus.nc
+  aifs_2025/
+  aigfs_2025/
+  nested_eagle_lam_2025/
+    rmse.convobs.nested-lam.nc
+  hrrr_2025/
+    rmse.convobs.lam.nc
+```
+
+Common built-in model keys are `nested_eagle_global`, `nested_eagle_lam`,
+`gfs`, `aifs`, `aigfs`, `ecmwf_ifs`, and `hrrr`.
+
+Minimal config edits:
+
+```
+metric: rmse
+input_path: /path/to/new_data
+output_path: /path/to/plots
+```
+
+By default, all selected models are evaluated on their exact overlapping
+initialization times (`t0`) and forecast hours (`fhr`). This keeps model
+performance comparisons one-to-one even when one model has only a month of data
+and another has a full year.
+
+Optional temporal filters can be added to either config:
+
+```
+require_exact_time_match: true
+start_date: "2025-01-01"
+end_date: "2025-12-31"
+years: [2025]
+months: [1, 2, 12]
+```
+
+Use `years` for one or more years, `months` for one or more months, or
+`start_date` / `end_date` for a precise date window. Filters are applied before
+matching models.
+
+If your model directory names match the defaults, no `models` block is needed.
+If they differ, add only the directory overrides:
+
+```
+models:
+  gfs:
+    directory: my_gfs_scores
+  aifs:
+    directory: my_aifs_scores
+```
+
+For heatmaps, add or remove comparisons by editing `candidate_model` and
+`baseline_model`:
+
+```
+plots:
+  - candidate_model: nested_eagle_global
+    baseline_model: gfs
+```
+
+For violin plots, add or remove models by editing the `models` list:
+
+```
+plots:
+  - regions: [global, conus]
+    lead_hours: [24, 240]
+    models: [nested_eagle_global, gfs, aigfs, aifs]
+```
+
+Output names include plot type, regions, models, metric, and lead range, for
+example `heatmap_regions-global-nh-sh-conus_models-nested_eagle_global-vs-gfs_rmse_d1-d10.png`.
+Violin plots also write a small summary CSV.

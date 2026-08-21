@@ -174,6 +174,100 @@ metrics.help = """Compute grid cell area weighted RMSE and MAE.
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
+def fss(config_file):
+    """
+    Compute the Fractions Skill Score.
+    """
+    from eagle.tools.fss import main
+    main(config_file)
+
+fss.help = """Compute the deterministic Fractions Skill Score (FSS).
+
+    \b
+    Implements the neighborhood-based FSS of Roberts & Lean (2008, MWR). For each
+    threshold and neighborhood radius, forecast and verification fields are
+    converted to binary exceedance fields, the fraction of exceeding grid points
+    within a square neighborhood is computed for each grid cell, and
+    FSS = 1 - MSE / MSE_ref, where MSE = mean((M-O)^2) and MSE_ref = mean(M^2+O^2)
+    over the domain (M, O = forecast/observed neighborhood fractions).
+
+    \b
+    Results are stored per initial condition and forecast hour (no averaging over
+    initial conditions), so downstream code can both aggregate correctly
+    (FSS = 1 - sum(mse)/sum(mse_ref) over t0) and estimate statistical significance.
+
+    \b
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    \b
+    Config Args:
+        forecast_path (str): Directory containing the forecast NetCDF files, named
+            f"{forecast_path}/{t0}.{lead_time}h.nc".
+        \b
+        output_path (str): Directory where the output is saved, as
+            f"{output_path}/fss.{model_type}.nc". The result has data_vars
+            fss, mse, mse_ref with dims (t0, fhr, threshold, radius). If
+            percentiles are configured, a second file
+            f"{output_path}/fss.percentile.{model_type}.nc" is written with
+            data_vars pfss, pmse, pmse_ref and dims (t0, fhr, percentile, radius).
+        \b
+        lead_time (int): Forecast length in hours, used only to build the forecast
+            filename.
+        \b
+        forecast_hours (list[int]): The specific lead times (hours) at which to
+            compute FSS.
+        \b
+        thresholds (list[float]): Exceedance thresholds, in the units of the fields
+            (e.g. mm of precip).
+        \b
+        percentiles (list[float], optional): If present, additionally compute a
+            percentile-threshold FSS (Roberts & Lean, 2008). Each field is
+            binarized at its own P-th percentile value, quantile(P/100), computed
+            separately for the forecast and observations over valid, wet (> 0) grid
+            points at each lead time (wet-only avoids the dry-mass degeneracy where
+            low percentiles land at 0 mm); deriving the thresholds per field removes
+            rainfall-amount bias to isolate spatial accuracy. If omitted, only
+            threshold FSS is done.
+        \b
+        radius_km (float | list[float]): Neighborhood half-width radius in km. A window
+            of side 2*round(radius_km/grid_spacing_km)+1 grid points is used. May be a
+            scalar or a list; the output carries a radius dimension.
+        \b
+        grid_spacing_km (float, optional): Grid spacing in km, used to convert radius
+            to grid points. Defaults to 6.0.
+        \b
+        verification_dataset (dict): Config for the gridded verification dataset. Keys:
+            path (str): Path to the zarr store (plain gridded (time, y, x) dataset).
+            precip_varname (str, optional): Name of the precip variable. Defaults to
+                the sole data_var if the dataset has exactly one.
+            trim_edge (dict, optional): Per-axis grid points to trim, e.g.
+                {x: [lo, hi], y: [lo, hi]}, to align with the forecast grid.
+        \b
+        forecast_dataset (dict): Config for the forecast dataset. Keys:
+            model_type (str): The model grid type, e.g. "nested-lam".
+            precip_varname (str): Name of the precip variable in the forecast.
+            lam_index (int, optional): For nested models, the number of grid points
+                belonging to the LAM domain.
+            lcc_info (dict, optional): Lambert Conformal Conic details {n_x, n_y}.
+            trim_forecast_edge (list[int], optional): Additional edge trimming.
+            from_anemoi (bool, optional): Included for parity with other workflows;
+                forecasts are opened via the anemoi inference format.
+        \b
+        start_date (str): The first initial condition date to process.
+        \b
+        end_date (str): The last initial condition date to process.
+        \b
+        freq (str): Frequency string for the date range (e.g., "6h").
+        \b
+        use_mpi (bool, optional): If True, distribute initial conditions across MPI ranks.
+        \b
+        log_path (str, optional): When using MPI, the directory for per-rank log files.
+    """
+
+
+@cli.command()
+@click.argument('config_file', type=click.Path(exists=True))
 def spatial(config_file):
     """
     Compute spatial error metrics.

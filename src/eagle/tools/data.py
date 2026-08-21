@@ -339,7 +339,7 @@ def open_anemoi_inference_dataset(
     return xds
 
 def open_forecast_zarr_dataset(
-    path: str,
+    path: str | Sequence[str],
     t0: pd.Timestamp,
     levels: Sequence[float | int] = None,
     vars_of_interest: Sequence[str] = None,
@@ -354,7 +354,9 @@ def open_forecast_zarr_dataset(
     Opens non-anemoi forecast datasets (e.g., HRRR forecast data preprocessed by ufs2arco).
 
     Args:
-        path (str): Path to the Zarr dataset.
+        path (str | Sequence[str]): Path to the Zarr dataset. May also be a list of
+            paths, one per lead time, when the forecast was written to a separate
+            store for each forecast hour; the stores are concatenated along ``fhr``.
         t0 (pd.Timestamp): The initialization time to select.
         levels (Sequence[float | int], optional): Vertical levels to select.
         vars_of_interest (Sequence[str], optional): specific variables to keep.
@@ -371,7 +373,13 @@ def open_forecast_zarr_dataset(
         xr.Dataset: The forecast dataset.
     """
 
-    xds = xr.open_zarr(path, decode_timedelta=True)
+    if isinstance(path, (list, tuple)):
+        # One store per lead time: concat along fhr into a single multi-fhr view.
+        xds = xr.concat(
+            [xr.open_zarr(p, decode_timedelta=True) for p in path], dim="fhr"
+        )
+    else:
+        xds = xr.open_zarr(path, decode_timedelta=True)
     stack_order = list(x for x in xds.dims if x not in ["t0", "fhr", "level", "member"])
     xds = xds.sel(t0=t0).squeeze(drop=True)
     xds["time"] = xr.DataArray(

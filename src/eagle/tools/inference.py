@@ -43,6 +43,8 @@ def create_anemoi_config(
         "lead_time": lead_time,
         "input": {"dataset": main_config["input_dataset_kwargs"]},
         "runner": main_config.get("runner", "default"),
+        "device": main_config.get("device", "cuda"),  # to allow switching between CPU/GPU inference
+        "precision": main_config.get("precision", None),
     }
 
     fname = f"{main_config['output_path']}/{date_str}.{lead_time}h.nc"
@@ -62,7 +64,9 @@ def create_anemoi_config(
             },
         }
         if variables is not None:
-            config["extract_lam"]["output"]["netcdf"]["variables"] = list(variables)
+            config["output"]["extract_lam"]["output"]["netcdf"]["variables"] = list(
+                variables
+            )
     else:
         config["output"] = {
             "netcdf": {"path": fname},
@@ -87,6 +91,9 @@ def _load_model_once(main_config: dict):
     """
     dummy_date = pd.Timestamp(main_config["start_date"])
     anemoi_config, output_filename = create_anemoi_config(init_date=dummy_date, main_config=main_config)
+    # Use a non-file output for the preload runner to avoid registering the same NetCDF path twice when the forecast runner is created.
+    # We preload like this to make inference faster if running inference over many dates by avoiding loading the model over and over.
+    anemoi_config["output"] = "printer"
     run_config = RunConfiguration.load(anemoi_config)
     runner = create_runner(run_config)
     model = runner.model

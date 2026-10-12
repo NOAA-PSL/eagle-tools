@@ -44,6 +44,7 @@ def create_anemoi_config(
         "input": {"dataset": main_config["input_dataset_kwargs"]},
         "runner": main_config.get("runner", "default"),
         "device": main_config.get("device", "cuda"),  # to allow switching between CPU/GPU inference
+        "precision": main_config.get("precision", None),
     }
 
     fname = f"{main_config['output_path']}/{date_str}.{lead_time}h.nc"

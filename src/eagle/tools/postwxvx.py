@@ -7,8 +7,6 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from eagle.tools.log import setup_simple_log
-
 logger = logging.getLogger("eagle.tools")
 
 def parse_lead_time(lead_str: str) -> int | float:
@@ -105,8 +103,14 @@ def met_dict_to_dataset(mdict):
 
 
 def main(config):
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "postwxvx")
 
-    setup_simple_log()
+    topo = config["topo"]
+    if config["use_mpi"]:
+        raise NotImplementedError
+
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
     lead_times = np.arange(config["leadtimes"]["start"], config["leadtimes"]["end"]+1, config["leadtimes"]["step"])
     stat_prefix = config["stat_prefix"]
@@ -116,15 +120,16 @@ def main(config):
     with metmetapath.open("r") as f:
         rename = yaml.safe_load(f)["rename"]
 
-    logger.info(f" --- Gathering metrics from wxvx stats --- ")
+    logger.info(f"Gathering metrics from wxvx stats")
     logger.info(f"Initial Conditions:\n{dates}")
     logger.info(f"Variables:\n{variable_prefixes}")
     for varname in variable_prefixes:
         logger.info(f"Processing {varname}")
         dslist2 = []
+        num_failures = 0
         for t0 in dates:
             st0 = t0.strftime("%Y-%m-%dT%H")
-            logger.info(f"Processing {st0}")
+            logger.debug(f"Processing {st0}")
 
             dslist = []
             for fhr in lead_times:
@@ -141,7 +146,10 @@ def main(config):
                     mdict = met_txtfile_to_dict(filename)
                     xds = met_dict_to_dataset(mdict)
                 except:
-                    logger.warning(f"Failure for {varname} at (t0, fhr) = ({st0}, {fhr})")
+                    num_failures += 1
+                    svtime = vtime.strftime("%Y-%m-%dT%H")
+                    msg = f"Failure for {varname} at (t0, fhr) = ({st0}, {fhr}), valid time = {svtime}"
+                    logger.warning(msg)
                     xds = xr.Dataset({"fhr": xr.DataArray([fhr], coords={"fhr": [fhr]})})
                 dslist.append(xds)
 
@@ -151,3 +159,8 @@ def main(config):
         result = xr.concat(dslist2, dim="t0")
         nicename = rename.get(varname, varname)
         result.to_netcdf(f"{work_path}/{nicename}.nc")
+
+        if num_failures > 0:
+            msg = f" ... {varname} had {num_failures} failures out of {len(lead_times)*len(dates)} timestamps"
+            logger.info(msg)
+    logger.info(f"Done with postwxvx workflow")

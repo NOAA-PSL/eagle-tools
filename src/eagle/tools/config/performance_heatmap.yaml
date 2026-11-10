@@ -1,0 +1,62 @@
+# Community-friendly scorecard heatmap config.
+# This is one of the only two scorecard plot types added here:
+# heatmap and violin.
+#
+# How to use:
+#   eagle-tools performance-heatmap path/to/this_config.yaml
+#
+# Most users only need to edit input_path and output_path.
+# Add a models: block only if your directory names differ from the defaults.
+#
+# Built-in model keys:
+#   nested_eagle_global, nested_eagle_lam, gfs, aifs, aigfs, ecmwf_ifs, hrrr
+#
+# Expected layout:
+#   input_path/
+#     nested_eagle_global_2025/
+#     gfs_2025/
+#     aifs_2025/
+#     aigfs_2025/
+
+metric: rmse
+input_path: /scratch3/NAGAPE/epic/role-epic/EAGLE/eagle_models_vv/scorecard_system/data/new_data
+output_path: /scratch3/NAGAPE/epic/role-epic/EAGLE/eagle_models_vv/scorecard_system/outputs
+
+# Optional temporal selection. All selected models are matched on the exact
+# same t0 and forecast-hour coordinates after these filters are applied.
+# Use any combination:
+# start_date: "2025-01-01"
+# end_date: "2025-12-31"
+# years: [2025]
+# months: [1, 2, 12]
+require_exact_time_match: true
+
+# The standard model directory names, labels, colors, filename patterns,
+# regions, variables, levels, and forecast hours have built-in defaults.
+# Example directory override:
+# models:
+#   gfs:
+#     directory: my_gfs_scores
+
+plots:
+  # Add/remove heatmap comparisons by editing candidate_model and baseline_model.
+  - name: nested_eagle_global_vs_gfs_regions
+    candidate_model: nested_eagle_global
+    baseline_model: gfs
+    output: heatmap_regions-global-nh-sh-conus_models-nested_eagle_global-vs-gfs_rmse_d1-d10.png
+
+  - name: nested_eagle_global_vs_aifs_regions
+    candidate_model: nested_eagle_global
+    baseline_model: aifs
+    output: heatmap_regions-global-nh-sh-conus_models-nested_eagle_global-vs-aifs_rmse_d1-d10.png
+
+  - name: nested_eagle_global_vs_aigfs_regions
+    candidate_model: nested_eagle_global
+    baseline_model: aigfs
+    output: heatmap_regions-global-nh-sh-conus_models-nested_eagle_global-vs-aigfs_rmse_d1-d10.png
+
+  # Example for an additional built-in model, if ecmwf_ifs_2025 is present:
+  # - name: nested_eagle_global_vs_ecmwf_ifs_regions
+  #   candidate_model: nested_eagle_global
+  #   baseline_model: ecmwf_ifs
+  #   output: heatmap_regions-global-nh-sh-conus_models-nested_eagle_global-vs-ecmwf_ifs_rmse_d1-d10.png

@@ -9,7 +9,6 @@ import anemoi.datasets
 
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
-from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.nested import prepare_regrid_target_mask
 
@@ -17,7 +16,11 @@ logger = logging.getLogger("eagle.tools")
 
 
 def main(config):
-    setup_simple_log()
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "prewxvx")
+
+    topo = config["topo"]
 
     forecast_path = config["forecast_path"]
     output_path = config["output_path"]
@@ -27,15 +30,16 @@ def main(config):
 
     open_kwargs = {
         "load": True,
-        "reshape_cell_to_2d": model_type != "nested-global",
+        "reshape_cell_to_2d": True,
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
         "member": config.get("member", None),
         "lcc_info": config.get("lcc_info", None),
+        "rename_to_longnames": config.get("rename_to_longnames", False)
     }
 
     if model_type == "nested-global":
-        config["forecast_regrid_kwargs"]["target_grid_path"] = (
+        config["forecast_regrid_kwargs"]["target_grid_path"], mask = (
             prepare_regrid_target_mask(
                 anemoi_reference_dataset_kwargs=config[
                     "anemoi_reference_dataset_kwargs"
@@ -45,7 +49,20 @@ def main(config):
         )
 
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
-    for t0 in dates:
+    n_dates = len(dates)
+    n_batches = int(np.ceil(n_dates / topo.size))
+    for batch_idx in range(n_batches):
+
+        date_idx = (batch_idx * topo.size) + topo.rank
+        if date_idx + 1 > n_dates:
+            break # Last batch situation
+
+        try:
+            t0 = dates[date_idx]
+        except:
+            logger.error(f"Error getting this date: {date_idx} / {n_dates}")
+            raise
+
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
 
@@ -69,13 +86,52 @@ def main(config):
                 **open_kwargs,
             )
 
-        # Clean up before storing
-        for key in ["x", "y"]:
-            if key in xds.coords:
-                xds = xds.drop_vars(key)
         xds.attrs = {}
-        if "lam" in model_type:
+        if "lam" in model_type and config.get("rename_curvilinear_coords_to_latlon", True):
+            for key in ["x", "y"]:
+                if key in xds.coords:
+                    xds = xds.drop_vars(key)
             xds = xds.rename({"x": "longitude", "y": "latitude"})
+
+        if model_type == "nested-global":
+            xds["nest_mask"] = mask.rename({"lat": "latitude", "lon": "longitude"})
+            xds["nest_mask"].attrs = {
+                "long_name": "Nest mask",
+                "description": "Binary mask. 1 = grid cell is in the nested region, 0 = rest of the globe",
+            }
+            xds = xds.set_coords("nest_mask")
+
+        # Attributes
         xds.attrs["forecast_reference_time"] = str(xds.time.values[0])
+
+        user_attributes = config.get("attributes", {})
+        xds.attrs.update(user_attributes.get("dataset", {}))
+        for varname, var_attrs in user_attributes.get("variables", {}).items():
+            if varname in xds:
+                xds[varname].attrs.update(var_attrs)
+            else:
+                logger.warning(f"Variable '{varname}' not found in dataset, skipping attributes")
+
+        # Add descriptive meta info for diagnostic fields, which have all NaNs in the first timestamp
+        for varname in xds.data_vars:
+            t0 = xds[varname].isel(time=0)
+            num_nans = np.isnan(t0).sum().values
+            num_cell = np.prod(t0.shape)
+            if num_nans == num_cell:
+                logger.info(f"Found diagnostic {varname}")
+                note = xds[varname].attrs.get("diagnostic_note", "")
+                if len(note) > 0:
+                    note += " "
+                note += f"{varname} is diagnosed by the model, so the initial condition is all NaNs"
+                xds[varname].attrs["diagnostic_note"] = note
+
+        # Sort the data variables
+        xds = xds[sorted(xds.data_vars)]
+
+        # Chunking
+        chunks = config.get("chunks", None)
+        if chunks is not None:
+            xds = xds.chunk(chunks)
         xds.to_netcdf(path_out)
         logger.info(f"Wrote to {path_out}")
+    logger.info(f"Done with prewxvx workflow")

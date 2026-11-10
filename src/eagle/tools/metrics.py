@@ -7,9 +7,7 @@ import pandas as pd
 
 import ufs2arco.utils
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
-from ufs2arco.mpi import MPITopology, SerialTopology
 
-from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.reshape import flatten_to_cell
 from eagle.tools.reshape import reshape_cell_to_latlon
@@ -66,6 +64,64 @@ def _area_weights(xds, unit_mean=True, radius=1, center=np.array([0,0,0]), thres
     return area_weight
 
 
+def _parse_subregions(config):
+    """Parse subregion definitions from config.
+
+    Returns dict of {name: {"latitude": (min, max), "longitude": (min, max)}}.
+    Longitude bounds are accepted in [-180, 180] and converted to [0, 360] to
+    match the forecast/verification grid convention.
+    """
+    raw = config.get("subregions", {})
+    subregions = {}
+    for name, bounds in raw.items():
+        if "latitude" not in bounds and "longitude" not in bounds:
+            raise ValueError(f"Subregion '{name}' must have at least 'latitude' or 'longitude'")
+        lat = tuple(bounds["latitude"]) if "latitude" in bounds else (-90, 90)
+        lon = bounds.get("longitude", [0, 359.99])
+        lon = tuple(ll % 360 for ll in lon)
+        subregions[name] = {"latitude": lat, "longitude": lon}
+    return subregions
+
+
+def _subregion_mask(latitude, longitude, bounds):
+    """Boolean DataArray selecting grid cells within geographic bounds.
+
+    Handles longitude wrapping around 0/360.
+    """
+    lat_min, lat_max = bounds["latitude"]
+    lon_min, lon_max = bounds["longitude"]
+    lat_mask = (latitude >= lat_min) & (latitude <= lat_max)
+    if lon_min <= lon_max:
+        lon_mask = (longitude >= lon_min) & (longitude <= lon_max)
+    else:
+        lon_mask = (longitude >= lon_min) | (longitude <= lon_max)
+    return lat_mask & lon_mask
+
+
+def _get_latlon(weights, fallback_ds):
+    """Get latitude/longitude coords from the weights array, else the dataset.
+
+    For equal-area (LAM) grids ``weights`` is a scalar, so fall back to the
+    dataset's coordinates.
+    """
+    if isinstance(weights, xr.DataArray) and "latitude" in weights.coords:
+        return weights["latitude"], weights["longitude"]
+    return fallback_ds["latitude"], fallback_ds["longitude"]
+
+
+def _subregion_weights(weights, fallback_ds, bounds):
+    """Mask the area weights to a subregion and renormalize to unit mean.
+
+    Renormalizing so the masked weights have unit mean *over the region* lets
+    the existing metric functions' ``.mean()`` produce the correct
+    area-weighted mean over the subregion (NaNs outside are skipped).
+    """
+    latitude, longitude = _get_latlon(weights, fallback_ds)
+    mask = _subregion_mask(latitude, longitude, bounds)
+    w_sub = xr.where(mask, weights, np.nan)
+    return w_sub / w_sub.mean()
+
+
 def postprocess(xds):
 
     t0 = pd.Timestamp(xds["time"][0].values)
@@ -109,23 +165,47 @@ def mae(target, prediction, weights=1., spatial_dims=("cell",)):
     return postprocess(xds)
 
 
+def spread(ensemble, weights=1.):
+    """Area-weighted ensemble spread (std dev over member dim)."""
+    result = {}
+    dims = tuple(d for d in ensemble.dims if d not in ("time", "level", "member"))
+    for key in ensemble.data_vars:
+        std = ensemble[key].std("member")
+        weighted_std = weights * std
+        result[key] = weighted_std.mean(dims).compute()
+    xds = xr.Dataset(result)
+    return postprocess(xds)
+
+
+def fcrps(target, ensemble, weights=1.):
+    """Area-weighted fair Continuous Ranked Probability Score.
+
+    fCRPS = (1/N) * Σ|u_e - u*| - 1/(2*N*(N-1)) * ΣΣ|u_e - u_i|
+    """
+    result = {}
+    n_members = ensemble.sizes["member"]
+    dims = tuple(d for d in ensemble.dims if d not in ("time", "level", "member"))
+    for key in ensemble.data_vars:
+        abs_err = np.abs(ensemble[key] - target[key].squeeze("member")).mean("member")
+        pairwise = np.abs(
+            ensemble[key] - ensemble[key].rename({"member": "_member"})
+        ).mean(("member", "_member"))
+        fair_crps = weights * (abs_err - pairwise / (2 * (n_members - 1)))
+        result[key] = fair_crps.mean(dims).compute()
+    xds = xr.Dataset(result)
+    return postprocess(xds)
+
+
 def main(config):
     """Compute grid cell area weighted RMSE and MAE.
 
     See ``eagle-tools metrics --help`` or cli.py for help
     """
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "metrics")
 
-    use_mpi = config.get("use_mpi", False)
-    if use_mpi:
-        topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/metrics"))
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
-
-    else:
-        topo = SerialTopology()
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
-
+    topo = config["topo"]
 
     # options used for verification and inference datasets
     model_type = config["model_type"]
@@ -135,6 +215,9 @@ def main(config):
         "vars_of_interest": config.get("vars_of_interest", None),
         "lcc_info": config.get("lcc_info", None),
     }
+    n_members = config.get("n_members", 1)
+    is_ensemble = n_members > 1
+
     target_regrid_kwargs = config.get("target_regrid_kwargs", None)
     forecast_regrid_kwargs = config.get("forecast_regrid_kwargs", None)
     do_any_regridding = (target_regrid_kwargs is not None) or \
@@ -144,7 +227,7 @@ def main(config):
         mkw["spatial_dims"] = ("latitude", "longitude")
 
     if model_type == "nested-global":
-        forecast_regrid_kwargs["target_grid_path"] = prepare_regrid_target_mask(
+        forecast_regrid_kwargs["target_grid_path"], _ = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
             horizontal_regrid_kwargs=forecast_regrid_kwargs,
         )
@@ -165,14 +248,37 @@ def main(config):
         regrid_kwargs=target_regrid_kwargs,
     )
 
+    # Subregions: "global" (full field, no suffix) plus any user-defined regions
+    subregions = _parse_subregions(config)
+    region_names = ["global"] + list(subregions.keys())
+    region_weights = {"global": latlon_weights}
+    for sr_name, sr_bounds in subregions.items():
+        region_weights[sr_name] = _subregion_weights(latlon_weights, vds, sr_bounds)
+
+    if subregions:
+        logger.info(f"Subregions: {list(subregions.keys())}")
+        if topo.is_root:
+            latitude, longitude = _get_latlon(latlon_weights, vds)
+            srds = xr.Dataset({
+                sr_name: xr.where(_subregion_mask(latitude, longitude, sr_bounds), 1.0, np.nan)
+                for sr_name, sr_bounds in subregions.items()
+            })
+            fname = f"{config['output_path']}/subregions.{model_type}.nc"
+            srds.to_netcdf(fname)
+            logger.info(f"Stored subregion masks at {fname}")
+
     dates = pd.date_range(config["start_date"], config["end_date"], freq=config["freq"])
     n_dates = len(dates)
     n_batches = int(np.ceil(n_dates / topo.size))
 
-    rmse_container = list()
-    mae_container = list()
+    metric_names = ["rmse", "mae"]
+    if is_ensemble:
+        metric_names += ["spread", "fcrps", "rmse_ensmean", "mae_ensmean"]
 
-    logger.info(f" --- Computing Error Metrics --- ")
+    # Containers nested by region: {region: {metric: [per-IC datasets]}}
+    containers = {rn: {m: [] for m in metric_names} for rn in region_names}
+
+    logger.info(f"Computing Error Metrics")
     logger.info(f"Initial Conditions:\n{dates}")
     for batch_idx in range(n_batches):
 
@@ -188,65 +294,96 @@ def main(config):
 
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
-        if config.get("from_anemoi", True):
 
-            fds = open_anemoi_inference_dataset(
-                f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
-                model_type=model_type,
-                lam_index=lam_index,
-                trim_edge=config.get("trim_forecast_edge", None),
-                load=True,
-                reshape_cell_to_2d=do_any_regridding,
-                horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
-                **subsample_kwargs,
-            )
-        else:
+        # Load forecast member(s)
+        member_fds_list = []
+        for member in range(n_members):
+            if config.get("from_anemoi", True):
+                fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+                if is_ensemble:
+                    fname = fname.replace(".nc", f".member{member:03d}.nc")
+                fds = open_anemoi_inference_dataset(
+                    fname,
+                    model_type=model_type,
+                    lam_index=lam_index,
+                    trim_edge=config.get("trim_forecast_edge", None),
+                    load=True,
+                    reshape_cell_to_2d=do_any_regridding,
+                    horizontal_regrid_kwargs=forecast_regrid_kwargs if model_type == "nested-global" else None,
+                    **subsample_kwargs,
+                )
+            else:
+                fds = open_forecast_zarr_dataset(
+                    config["forecast_path"],
+                    t0=t0,
+                    member=member if is_ensemble else None,
+                    trim_edge=config.get("trim_forecast_edge", None),
+                    load=True,
+                    reshape_cell_to_2d=do_any_regridding,
+                    **subsample_kwargs,
+                )
 
-            fds = open_forecast_zarr_dataset(
-                config["forecast_path"],
-                t0=t0,
-                trim_edge=config.get("trim_forecast_edge", None),
-                load=True,
-                reshape_cell_to_2d=do_any_regridding,
-                **subsample_kwargs,
-            )
+            if forecast_regrid_kwargs is not None and model_type != "nested-global":
+                fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
 
-        if forecast_regrid_kwargs is not None and model_type != "nested-global":
-            fds = horizontal_regrid(fds, **forecast_regrid_kwargs)
+            member_fds_list.append(fds)
 
-        tds = vds.sel(time=fds.time.values).load()
+        # Load target data once (using time coords from first member)
+        tds = vds.sel(time=member_fds_list[0].time.values).load()
         if do_any_regridding:
             tds = reshape_cell_dim(tds, model_type, subsample_kwargs["lcc_info"])
-
         if target_regrid_kwargs is not None:
             tds = horizontal_regrid(tds, **target_regrid_kwargs)
 
-        rmse_container.append(rmse(target=tds, prediction=fds, weights=latlon_weights, **mkw))
-        mae_container.append(mae(target=tds, prediction=fds, weights=latlon_weights, **mkw))
+        if is_ensemble:
+            ensemble_fds = xr.concat(member_fds_list, dim="member")
+            ensmean = ensemble_fds.mean("member")
+
+        # Compute metrics for the full field ("global") and each subregion, by
+        # re-using the same metric functions with region-masked area weights.
+        for rn in region_names:
+            weights = region_weights[rn]
+
+            member_rmse_list = []
+            member_mae_list = []
+            for member in range(n_members):
+                member_rmse_list.append(rmse(target=tds, prediction=member_fds_list[member], weights=weights, **mkw))
+                member_mae_list.append(mae(target=tds, prediction=member_fds_list[member], weights=weights, **mkw))
+
+            if is_ensemble:
+                containers[rn]["rmse"].append(xr.concat(member_rmse_list, dim="member"))
+                containers[rn]["mae"].append(xr.concat(member_mae_list, dim="member"))
+            else:
+                containers[rn]["rmse"].append(member_rmse_list[0])
+                containers[rn]["mae"].append(member_mae_list[0])
+
+            # Ensemble-only metrics
+            if is_ensemble:
+                containers[rn]["spread"].append(spread(ensemble_fds, weights=weights))
+                containers[rn]["fcrps"].append(fcrps(target=tds, ensemble=ensemble_fds, weights=weights))
+                containers[rn]["rmse_ensmean"].append(rmse(target=tds, prediction=ensmean, weights=weights, **mkw))
+                containers[rn]["mae_ensmean"].append(mae(target=tds, prediction=ensmean, weights=weights, **mkw))
 
         logger.info(f"Done with {st0}")
-    logger.info(f" --- Done Computing Metrics --- \n")
+    logger.info(f"Done Computing Metrics")
 
-    logger.info(f" --- Gathering Results on Root Process --- \n")
-    rmse_container = topo.gather(rmse_container)
-    mae_container = topo.gather(mae_container)
+    logger.info(f"Gathering Results on Root Process")
+    for rn in region_names:
+        for name in metric_names:
+            containers[rn][name] = topo.gather(containers[rn][name])
 
     if topo.is_root:
-        if use_mpi:
-            rmse_container = [xds for sublist in rmse_container for xds in sublist]
-            mae_container = [xds for sublist in mae_container for xds in sublist]
+        logger.info("Combining & Storing Results")
+        for rn in region_names:
+            suffix = "" if rn == "global" else f".{rn}"
+            for name in metric_names:
+                c = containers[rn][name]
+                if config["use_mpi"]:
+                    c = [xds for sublist in c for xds in sublist]
+                c = sorted(c, key=lambda xds: xds.coords["t0"])
+                c = xr.concat(c, dim="t0")
+                fname = f"{config['output_path']}/{name}.{model_type}{suffix}.nc"
+                c.to_netcdf(fname)
+                logger.info(f"Stored result: {fname}")
 
-        # Sort before passing to xarray, potentially faster
-        rmse_container = sorted(rmse_container, key=lambda xds: xds.coords["t0"])
-        mae_container = sorted(mae_container, key=lambda xds: xds.coords["t0"])
-
-        logger.info(f" --- Combining & Storing Results --- ")
-        rmse_container = xr.concat(rmse_container, dim="t0")
-        mae_container = xr.concat(mae_container, dim="t0")
-
-        for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
-            fname = f"{config['output_path']}/{varname}.{config['model_type']}.nc"
-            xda.to_netcdf(fname)
-            logger.info(f"Stored result: {fname}")
-
-        logger.info(f" --- Done Storing Error Metrics --- \n")
+        logger.info("Done Storing Error Metrics")

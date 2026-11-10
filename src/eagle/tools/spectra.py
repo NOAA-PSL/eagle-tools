@@ -7,10 +7,8 @@ from scipy.interpolate import griddata
 
 from anemoi.training.diagnostics.plots import compute_spectra as compute_array_spectra, equirectangular_projection
 
-from ufs2arco.mpi import MPITopology, SerialTopology
-
-from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset
+from eagle.tools.data import open_forecast_zarr_dataset
 from eagle.tools.metrics import postprocess
 from eagle.tools.nested import prepare_regrid_target_mask
 
@@ -91,23 +89,18 @@ def main(config):
 
     See ``eagle-tools spectra --help`` or cli.py for help
     """
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "spectra")
 
-    use_mpi = config.get("use_mpi", False)
-    if use_mpi:
-        topo = MPITopology(log_dir=config.get("log_path", "eagle-logs/spectra"))
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
-
-    else:
-        topo = SerialTopology()
-        logger.setLevel(logging.INFO)
-        logger.addHandler(topo.log_handler)
+    topo = config["topo"]
 
     # options used for verification and inference datasets
     model_type = config["model_type"]
     lam_index = config.get("lam_index", None)
     min_delta = config.get("min_delta_lat", 0.0003)
     fhr_select = config.get("fhr_select", None)
+    member = config.get("member", None)
     subsample_kwargs = {
         "levels": config.get("levels", None),
         "vars_of_interest": config.get("vars_of_interest", None),
@@ -115,7 +108,7 @@ def main(config):
     }
 
     if model_type == "nested-global":
-        config["forecast_regrid_kwargs"]["target_grid_path"] = prepare_regrid_target_mask(
+        config["forecast_regrid_kwargs"]["target_grid_path"], _ = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
             horizontal_regrid_kwargs=config["forecast_regrid_kwargs"],
         )
@@ -126,7 +119,7 @@ def main(config):
 
     pspectra = None
     grid = None
-    logger.info(f" --- Computing Spectra --- ")
+    logger.info(f"Computing Spectra")
     logger.info(f"Initial Conditions:\n{dates}")
     for batch_idx in range(n_batches):
 
@@ -144,8 +137,11 @@ def main(config):
         logger.info(f"Processing {st0}")
         if config.get("from_anemoi", True):
 
+            fname = f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc"
+            if member is not None:
+                fname = fname.replace(".nc", f".member{member:03d}.nc")
             fds = open_anemoi_inference_dataset(
-                f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
+                fname,
                 model_type=model_type,
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
@@ -189,7 +185,7 @@ def main(config):
     if pspectra is None:
         raise ValueError(f"Cannot use more MPI ranks than initial conditions, which is {n_dates}")
 
-    logger.info(f" --- Summing Results on Root Process --- ")
+    logger.info(f"Summing Results on Root Process")
     result = {}
     for key in fds.data_vars:
 
@@ -199,7 +195,7 @@ def main(config):
         result[key] = xr.DataArray(global_vals, coords=pspectra[key].coords)
         logger.info(f" ... aggregated {key}")
 
-    logger.info(f" --- Storing Results --- ")
+    logger.info(f"Storing Results")
     if topo.is_root:
 
         fname = f"{config['output_path']}/spectra.{config['model_type']}.nc"
@@ -208,4 +204,4 @@ def main(config):
             result[key].attrs = pspectra[key].attrs.copy()
         result.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f" --- Done ---")
+    logger.info(f"Done Computing Spectra")

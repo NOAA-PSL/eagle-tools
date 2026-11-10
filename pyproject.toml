@@ -54,6 +54,7 @@ evaluation = [
     "anemoi-datasets",
     "ufs2arco>=0.17.2",
     "anemoi-training",  # spectra.py
+    "nnja-ai[complete]>=1.0.0"
 ]
 
 # Sync MLflow logs to Azure ML (eagle-tools amlsync)
@@ -65,6 +66,7 @@ aml = [
 # Everything that is pip-installable.
 all = [
     "eagle-tools[eagle-pipeline,plotting,evaluation,aml]",
+    "nnja-ai[complete]>=1.0.0",
 ]
 
 # Conda-only dependencies (not pip-installable):

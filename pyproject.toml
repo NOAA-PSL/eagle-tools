@@ -18,25 +18,58 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
+# Minimal core: enough to run the CLI and the lightweight commands.
+# Everything else is opt-in via the extras below.
 dependencies = [
     "click",
+    "pyyaml",
     "numpy",
-    "scipy",
     "pandas",
     "xarray",
     "zarr<3",
-    "ufs2arco>=0.17.2",
-    "anemoi-datasets",
+]
+
+[project.optional-dependencies]
+# Only what official EAGLE pipeline uses
+eagle-pipeline = [
     "anemoi-inference",
+    "anemoi-datasets",
+    "ufs2arco>=0.17.2",
+]
+
+# Figures & movies (eagle-tools figures/movies)
+plotting = [
     "matplotlib",
     "cartopy",
     "cmocean",
+    "anemoi-datasets",
+    "ufs2arco>=0.17.2",
 ]
 
-# These are only available on conda:
-# mpi
-# xesmf
-# 
+# Error metrics / spatial maps / power spectra
+# (eagle-tools metrics, spatial, spectra)
+evaluation = [
+    "scipy",
+    "anemoi-datasets",
+    "ufs2arco>=0.17.2",
+    "anemoi-training",  # spectra.py
+]
+
+# Sync MLflow logs to Azure ML (eagle-tools amlsync)
+aml = [
+    "mlflow",
+    "azure-ai-ml",
+]
+
+# Everything that is pip-installable.
+all = [
+    "eagle-tools[eagle-pipeline,plotting,evaluation,aml]",
+]
+
+# Conda-only dependencies (not pip-installable):
+#   xesmf      -> needed by eagle.tools.postprocess
+#   mpi/mpi4py -> needed for MPI-parallelized metrics/spectra runs
 
 
 # This tells setuptools where to find your package(s)

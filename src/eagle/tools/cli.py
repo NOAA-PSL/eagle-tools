@@ -3,6 +3,20 @@ import yaml
 
 from eagle.tools.utils import open_yaml_config
 
+
+def _lazy_main(module_name, extra):
+    """Import ``main`` from a submodule, raising a friendly error when the
+    optional dependencies for ``extra`` are not installed."""
+    import importlib
+    try:
+        return importlib.import_module(module_name).main
+    except ImportError as e:
+        raise click.ClickException(
+            "This command requires extra dependencies that are not installed.\n"
+            f"Install them with:  pip install eagle-tools[{extra}]\n"
+            f"(original error: {e})"
+        ) from e
+
 @click.group()
 def cli():
     """A CLI for the Eagle Tools suite."""
@@ -15,7 +29,7 @@ def inference(config_file):
     """
     Run inference.
     """
-    from eagle.tools.inference import main
+    main = _lazy_main("eagle.tools.inference", "eagle-pipeline")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -66,7 +80,7 @@ def postprocess(config_file):
     """
     Run postprocessing.
     """
-    from eagle.tools.postprocess import main
+    main = _lazy_main("eagle.tools.postprocess", "all")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -77,7 +91,7 @@ def metrics(config_file):
     """
     Compute error metrics.
     """
-    from eagle.tools.metrics import main
+    main = _lazy_main("eagle.tools.metrics", "evaluation")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -155,7 +169,7 @@ def spatial(config_file):
     """
     Compute spatial error metrics.
     """
-    from eagle.tools.spatial import main
+    main = _lazy_main("eagle.tools.spatial", "evaluation")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -230,7 +244,7 @@ def spectra(config_file):
     """
     Compute power spectra.
     """
-    from eagle.tools.spectra import main
+    main = _lazy_main("eagle.tools.spectra", "evaluation")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -298,7 +312,7 @@ def figures(config_file):
     """
     Visualize the fields as figures
     """
-    from eagle.tools.visualize import main
+    main = _lazy_main("eagle.tools.visualize", "plotting")
     config = open_yaml_config(config_file)
     main(config, mode="figure")
 
@@ -379,7 +393,7 @@ def movies(config_file):
     """
     Visualize the fields as figures
     """
-    from eagle.tools.visualize import main
+    main = _lazy_main("eagle.tools.visualize", "plotting")
     config = open_yaml_config(config_file)
     main(config, mode="movie")
 
@@ -392,7 +406,7 @@ def prewxvx(config_file):
     """
     Postprocess forecast files for wxvx
     """
-    from eagle.tools.prewxvx import main
+    main = _lazy_main("eagle.tools.prewxvx", "eagle-pipeline")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -403,7 +417,7 @@ def postwxvx(config_file):
     """
     Gather wxvx stats
     """
-    from eagle.tools.postwxvx import main
+    main = _lazy_main("eagle.tools.postwxvx", "eagle-pipeline")
     config = open_yaml_config(config_file)
     main(config)
 
@@ -423,7 +437,7 @@ def amlsync(offline_path, local_id, remote_name):
         * AZURE_CLIENT_SECRET
     """
 
-    from eagle.tools.amlsync import main
+    main = _lazy_main("eagle.tools.amlsync", "aml")
     main(
         offline_path=offline_path,
         local_id=local_id,

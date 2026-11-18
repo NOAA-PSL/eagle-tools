@@ -1,9 +1,12 @@
 import os
 import logging
+import glob
 
 import numpy as np
 import pandas as pd
 import xarray as xr
+import importlib
+import yaml
 
 import anemoi.datasets
 
@@ -14,6 +17,11 @@ from eagle.tools.nested import prepare_regrid_target_mask
 
 logger = logging.getLogger("eagle.tools")
 
+def _load_format_config():
+    """Load file format extension configuration from format_extensions.yaml."""
+    path = importlib.resources.files("eagle.tools.config") / "format_extensions.yaml"
+    with path.open("r") as f:
+        return yaml.safe_load(f)
 
 def main(config):
     if isinstance(config, str):
@@ -27,6 +35,15 @@ def main(config):
     model_type = config["model_type"]
     from_anemoi = config.get("from_anemoi", True)
     lead_time = config["lead_time"]
+    format = config.get("format", None)
+
+    per_timestep = config.get("per_timestep", False)
+    timestep_take_subset = config.get("timestep_subset", {}).get("take_subset", False)
+    timestep_subset_list = config.get("timestep_subset", {}).get("subset_list", list())
+
+    per_variable = config.get("per_variable", False)
+    variable_take_subset = config.get("variable_subset", {}).get("take_subset", False)
+    variable_subset_list = config.get("variable_subset", {}).get("subset_list", list())
 
     open_kwargs = {
         "load": True,
@@ -66,8 +83,31 @@ def main(config):
         st0 = t0.strftime("%Y-%m-%dT%H")
         logger.info(f"Processing {st0}")
 
-        path_in = f"{forecast_path}/{st0}.{lead_time}h.nc"
-        path_out = f"{output_path}/{model_type}.{st0}.{lead_time}h.nc"
+        format_config = _load_format_config()
+        if format is None:
+            logger.warning(f"No file format specified in config yaml.")
+            try: 
+                extensions = ("nc", "zarr", "grib")
+                forecasts = []
+                for ext in extensions:
+                        forecasts.extend(glob.glob(f"{forecast_path}/{st0}.{lead_time}h.{ext}"))
+
+                path_in = forecasts[0]
+                _, ext = os.path.splitext(path_in)
+
+                logger.info(f"Found the following forecasts: {forecasts}")
+            except:
+                logger.error(f"Error getting forecast: {st0}.{lead_time}h")
+                raise
+
+
+
+            path_out = f"{output_path}/{model_type}.{st0}.{lead_time}h.{ext}"
+        else:
+            ext = format_config[format]
+            path_in = f"{forecast_path}/{st0}.{lead_time}h.{ext}"
+            path_out = f"{output_path}/{model_type}.{st0}.{lead_time}h.{ext}"
+        
 
         logger.info(f"Opening {path_in}")
         if from_anemoi:
@@ -128,10 +168,59 @@ def main(config):
         # Sort the data variables
         xds = xds[sorted(xds.data_vars)]
 
-        # Chunking
-        chunks = config.get("chunks", None)
-        if chunks is not None:
-            xds = xds.chunk(chunks)
-        xds.to_netcdf(path_out)
-        logger.info(f"Wrote to {path_out}")
+        # clip dataset to provided timestep subset
+        if timestep_take_subset:
+            timestep_subset_list = pd.to_datetime(timestep_subset_list)
+
+            available_times = xds.time.to_index().intersection(timestep_subset_list)
+
+            logger.info(f"Clipping output data to timestep(s): {available_times.strftime("%Y-%m-%d %H:%M").tolist()}")
+            xds = xds.sel(time=available_times)
+
+            timesteps_not_found = timestep_subset_list.difference(xds.time.to_index())
+            if not timesteps_not_found.empty:
+                logger.warning(f"The following timestep(s) provided in config yaml not found in dataset: {timesteps_not_found.strftime("%Y-%m-%d %H:%M").tolist()}")
+
+        # subset variables
+        if variable_take_subset:
+            available_vars = [v for v in variable_subset_list if v in xds.data_vars]
+
+            logger.info(f"Clipping output data to variable(s): {available_vars}")
+            xds = xds[available_vars]
+
+            variables_not_found = [v for v in variable_subset_list if v not in xds.data_vars]
+            if len(variables_not_found) != 0 :
+                logger.warning(f"The following variable(s) provided in config yaml not found in dataset: {variables_not_found}")
+
+
+        if (per_timestep and per_variable):
+            for timestep in xds.time.to_index():
+                for variable in xds.data_vars:
+                    sub_path_out = path_out.replace(f".{ext}", f".timestep_{timestep.strftime("%Y-%m-%dT%H")}.variable_{variable}.{ext}")
+                    sub_xds = xds.sel(time=timestep)
+                    sub_xds = sub_xds[variable]
+                    sub_xds.to_netcdf(sub_path_out)
+                    logger.info(f"Wrote to {sub_path_out}")
+
+        elif (per_timestep and not per_variable):
+            for timestep in xds.time.to_index():
+                sub_path_out = path_out.replace(f".{ext}", f".timestep_{timestep.strftime("%Y-%m-%dT%H")}.{ext}")
+                sub_xds = xds.sel(time=timestep)
+                sub_xds.to_netcdf(sub_path_out)
+                logger.info(f"Wrote to {sub_path_out}")
+
+        elif (per_variable and not per_timestep):
+            for variable in xds.data_vars:
+                sub_path_out = path_out.replace(f".{ext}", f".variable_{variable}.{ext}")
+                sub_xds = xds[variable]
+                sub_xds.to_netcdf(sub_path_out)
+                logger.info(f"Wrote to {sub_path_out}")
+
+        else:
+            # Chunking
+            chunks = config.get("chunks", None)
+            if chunks is not None:
+                xds = xds.chunk(chunks)
+            xds.to_netcdf(path_out)
+            logger.info(f"Wrote to {path_out}")
     logger.info(f"Done with prewxvx workflow")

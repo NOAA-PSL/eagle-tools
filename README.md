@@ -15,6 +15,28 @@ For more discussion on installing the right versions of torch and
 flash-attention, see
 [this discussion](https://github.com/NOAA-PSL/eagle-tools/discussions/29).
 
+### Optional dependency groups (extras)
+
+To keep the default install lightweight, most functionality lives behind
+optional dependency groups ("extras"). A bare `pip install eagle-tools` only
+installs the minimal core needed to run the CLI and lightweight commands.
+Opt into additional features with bracketed extras:
+
+| Extra | Enables | Install |
+| --- | --- | --- |
+| `eagle-pipeline` | `inference`, `prewxvx`, `postwxvx` | `pip install 'eagle-tools[eagle-pipeline]'` |
+| `plotting` | `figures`, `movies` | `pip install 'eagle-tools[plotting]'` |
+| `evaluation` | `metrics`, `spatial`, `spectra` | `pip install 'eagle-tools[evaluation]'` |
+| `aml` | `amlsync` (sync MLflow logs to Azure ML) | `pip install 'eagle-tools[aml]'` |
+| `all` | everything pip-installable | `pip install 'eagle-tools[all]'` |
+
+You can combine groups, e.g. `pip install 'eagle-tools[plotting,evaluation]'`.
+
+A couple of dependencies are only available on conda and are therefore **not**
+pulled in by any extra:
+- `xesmf` — required by the `postprocess` command
+- `mpi` / `mpi4py` — required for MPI-parallelized `metrics` / `spectra` runs
+
 ### Install as a user
 
 Since some dependencies are only available on conda, it's recommended to create

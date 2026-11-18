@@ -3,11 +3,21 @@ import os
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from anemoi.inference.config.run import RunConfiguration
 from anemoi.inference.runners import create_runner
 
+import pathlib
+import importlib
+
 logger = logging.getLogger("eagle.tools")
+
+def _load_format_config():
+    """Load file format extension configuration from format_extensions.yaml."""
+    path = importlib.resources.files("eagle.tools.config") / "format_extensions.yaml"
+    with path.open("r") as f:
+        return yaml.safe_load(f)
 
 
 def create_anemoi_config(
@@ -46,34 +56,49 @@ def create_anemoi_config(
         "device": main_config.get("device", "cuda"),  # to allow switching between CPU/GPU inference
         "precision": main_config.get("precision", None),
     }
+    # Load dict that maps output format long name to corresponding file extension
+    format_config = _load_format_config()
+    # Set the output format(s); i.e., netcdf, zarr, grib
+    output_format = main_config['output_format']
+    print(f"OUTPUT FORMAT: {output_format}")
+    if output_format == "tee":
+        formats = main_config["tee"]
+    else:
+        formats = [output_format]
+    print(f"FORMATS: {formats}")
+    output_paths = {}
+    for f in formats:
+        # Set the output file extension; i.e., netcdf:nc, zarr:zarr, grib:grib
+        ext = format_config[f] 
+        fname = f"{main_config['output_path']}/{date_str}.{lead_time}h.{ext}"
+        if member is not None:
+            fname = fname.replace(f".{ext}", f".member{member:03d}.{ext}")
+        if main_config.get("extract_lam", False):
+            fname = fname.replace(f".{ext}", f"lam.{ext}")
+        output_paths[f] =  fname
+    if output_format == "tee":
+        output_paths = {"tee": [{key: value} for key, value in output_paths.items()]}
 
-    fname = f"{main_config['output_path']}/{date_str}.{lead_time}h.nc"
-    if member is not None:
-        fname = fname.replace(".nc", f".member{member:03d}.nc")
-
+    print(f"OUTPUT PATHS: {output_paths}")
     variables = main_config.get("vars_of_interest", None)
+
     if main_config.get("extract_lam", False):
-        fname = fname.replace(".nc", "lam.nc")
         config["output"] = {
             "extract_lam": {
-                "output": {
-                    "netcdf": {
-                        "path": fname,
-                    },
-                },
+                "output": output_paths
             },
         }
         if variables is not None:
-            config["output"]["extract_lam"]["output"]["netcdf"]["variables"] = list(
-                variables
-            )
+            output_variables = {}
+            for f in formats:
+                config["output"]["extract_lam"]["output"][f]["variables"] = list(variables)
     else:
-        config["output"] = {
-            "netcdf": {"path": fname},
-        }
+        config["output"] = output_paths
         if variables is not None:
-            config["output"]["netcdf"]["variables"] = list(variables)
-
+            for f in formats:
+                 config["output"][f]["variables"] = list(variables)
+    with open('ANEMOI_CONFIG_TEST.yaml', 'w', encoding='utf-8') as f:
+        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
     return config, fname
 
 
@@ -166,6 +191,7 @@ def run_forecast(
         runner = create_runner(run_config)
         if preloaded_model is not None:
             runner.__dict__["model"] = preloaded_model
+        print(f"RUNNER: {runner}")
         runner.execute()
     return
 

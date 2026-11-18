@@ -27,8 +27,7 @@ def inference(config_file):
     Run inference.
     """
     main = _lazy_main("eagle.tools.inference", "eagle-pipeline")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 inference.help = """Runs Anemoi inference pipeline over many initialization dates.
 
@@ -98,8 +97,7 @@ def postprocess(config_file):
     Run postprocessing.
     """
     main = _lazy_main("eagle.tools.postprocess", "all")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 
 @cli.command()
@@ -109,8 +107,7 @@ def metrics(config_file):
     Compute error metrics.
     """
     main = _lazy_main("eagle.tools.metrics", "evaluation")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 metrics.help = """Compute grid cell area weighted RMSE and MAE.
 
@@ -196,8 +193,7 @@ def spatial(config_file):
     Compute spatial error metrics.
     """
     main = _lazy_main("eagle.tools.spatial", "evaluation")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 spatial.help = """Compute spatial maps of RMSE and MAE
 
@@ -355,8 +351,7 @@ def spectra(config_file):
     Compute power spectra.
     """
     main = _lazy_main("eagle.tools.spectra", "evaluation")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 spectra.help = """Compute the Power Spectrum averaged over all initial conditions
 
@@ -541,8 +536,7 @@ def figures(config_file):
     Visualize the fields as figures
     """
     main = _lazy_main("eagle.tools.visualize", "plotting")
-    config = open_yaml_config(config_file)
-    main(config, mode="figure")
+    main(config_file, mode="figure")
 
 figures.help = """Create figures or movies visually comparing predictions to targets
 
@@ -622,8 +616,7 @@ def movies(config_file):
     Visualize the fields as figures
     """
     main = _lazy_main("eagle.tools.visualize", "plotting")
-    config = open_yaml_config(config_file)
-    main(config, mode="movie")
+    main(config_file, mode="movie")
 
 movies.help = figures.help
 
@@ -635,8 +628,7 @@ def prewxvx(config_file):
     Postprocess forecast files for wxvx
     """
     main = _lazy_main("eagle.tools.prewxvx", "eagle-pipeline")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 prewxvx.help = """Postprocess forecast files for wxvx.
 
@@ -682,8 +674,7 @@ def postwxvx(config_file):
     Gather wxvx stats
     """
     main = _lazy_main("eagle.tools.postwxvx", "eagle-pipeline")
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 @cli.command("obs-metrics")
 @click.argument('config_file', type=click.Path(exists=True))

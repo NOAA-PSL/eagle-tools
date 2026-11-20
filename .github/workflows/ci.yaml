@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Login shell so the conda env activated by setup-miniconda is on PATH.
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # tags/history for setuptools_scm version
+
+      - name: Cache conda packages
+        uses: actions/cache@v6
+        env:
+          CACHE_NUMBER: 0  # bump to invalidate the cache manually
+        with:
+          path: ~/conda_pkgs_dir
+          key: conda-${{ runner.os }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('.github/environment.yaml') }}
+
+      - name: Set up conda env (eagle)
+        uses: conda-incubator/setup-miniconda@v4
+        with:
+          miniforge-version: latest  # ships mamba + conda-forge
+          environment-file: .github/environment.yaml
+          activate-environment: eagle
+          auto-activate-base: false
+          use-mamba: true
+
+      - name: Install eagle-tools
+        run: pip install -e . --no-deps
+
+      - name: Unit tests
+        run: coverage run -m pytest -m unit
+
+      - name: Coverage report
+        if: ${{ !cancelled() }}
+        run: |
+          coverage report
+          { echo '### Coverage'; coverage report --format=markdown; } >> "$GITHUB_STEP_SUMMARY"

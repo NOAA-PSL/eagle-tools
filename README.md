@@ -79,6 +79,20 @@ pip install --no-cache-dir --no-build-isolation flash-attn==2.7.4.post1
 pip install "mlflow-skinny<3.0"
 ```
 
+### Running the tests
+
+The unit tests run on small synthetic datasets, so they need no external data.
+From the repo root, in the `eagle` environment:
+
+```
+pip install -e ".[dev]"
+coverage run -m pytest -m unit
+coverage report
+```
+
+CI runs the same commands in the environment defined in
+`.github/environment.yaml`.
+
 
 ## Usage
 

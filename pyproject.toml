@@ -48,11 +48,21 @@ where = ["src"]
 eagle-tools = "eagle.tools.cli:cli"
 
 [project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "pytest-mock>=3.10",
-]
+dev = ["pytest", "coverage"]
 
 [tool.setuptools.package-data]
 "eagle.tools.config" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: fast, isolated tests (no external data); auto-applied to tests/unit/",
+    "integration: tests that need real datasets; auto-applied to tests/integration/",
+]
+
+[tool.coverage.run]
+source = ["eagle.tools"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true

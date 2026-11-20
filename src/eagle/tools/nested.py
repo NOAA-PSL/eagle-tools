@@ -48,7 +48,6 @@ def prepare_regrid_target_mask(
     """check if the target mask is there, otherwise add it and store it in a new spot"""
 
     target_grid_path = os.path.expandvars(horizontal_regrid_kwargs["target_grid_path"])
-    regridder_kwargs = horizontal_regrid_kwargs["regridder_kwargs"]
 
     kw = horizontal_regrid_kwargs.get("open_target_kwargs", {})
     tds = xr.open_dataset(target_grid_path, **kw)
@@ -70,7 +69,7 @@ def prepare_regrid_target_mask(
         tds.to_netcdf(target_grid_path)
         logger.info(f"Stored {target_grid_path}")
 
-    return target_grid_path
+    return target_grid_path, tds["mask"]
 
 
 def regrid_nested_to_latlon(
@@ -90,6 +89,16 @@ def regrid_nested_to_latlon(
     cds = xds.isel(cell=slice(lam_index, None))
     lat_is_ascending = cds["latitude"][0] < cds["latitude"][-1]
 
+    # Look for diagnostic fields, which have all NaNs in the first time slice
+    diagnostic_variables = list()
+    for varname in lds.data_vars:
+        t0 = lds[varname].isel(time=0)
+        num_nans = np.isnan(t0).sum().values
+        num_cell = np.prod(t0.shape)
+        if num_nans == num_cell:
+            logger.debug(f"regrid_nested_to_latlon: Found diagnostic {varname}")
+            diagnostic_variables.append(varname)
+            lds[varname][{"time": 0}] = 0
 
     # Regrid to global resolution, stack lat/lon, drop non LAM part
     lam_on_global = horizontal_regrid(lds, **horizontal_regrid_kwargs)
@@ -111,4 +120,50 @@ def regrid_nested_to_latlon(
     result = result.isel(cell=sort_index)
     result = reshape_cell_to_latlon(result)
     result = result.sortby("latitude", ascending=lat_is_ascending)
+    for varname in diagnostic_variables:
+        result[varname][{"time": 0}] = np.nan
+    return result
+
+
+def reconstruct_nested_dataset(
+    global_ds: xr.Dataset | str,
+    lam_ds: xr.Dataset | str,
+) -> xr.Dataset:
+    """Reconstruct a single dataset with a 1D ``cell`` dimension from prewxvx outputs.
+
+    Combines the regridded nested-global dataset (which carries a ``nest_mask``
+    coordinate) with the nested-lam dataset to reproduce the layout of the
+    original inference output: LAM cells first, then the global cells outside
+    the nested region.
+
+    Args:
+        global_ds: The nested-global prewxvx output, or a path to the NetCDF file.
+            Must have ``(latitude, longitude)`` dimensions and a ``nest_mask`` coordinate.
+        lam_ds: The nested-lam prewxvx output, or a path to the NetCDF file.
+            Must have ``(y, x)`` dimensions.
+
+    Returns:
+        A dataset with a single ``cell`` dimension, LAM cells followed by
+        global cutout cells.
+    """
+    if isinstance(global_ds, str):
+        global_ds = xr.load_dataset(global_ds)
+    if isinstance(lam_ds, str):
+        lam_ds = xr.load_dataset(lam_ds)
+
+    # Stack global dataset and keep only cells outside the nested region
+    gstacked = global_ds.stack(cell2d=("latitude", "longitude"))
+    gstacked["cell"] = xr.DataArray(np.arange(len(gstacked.cell2d)), dims=("cell2d",))
+    gstacked = gstacked.swap_dims({"cell2d": "cell"}).drop_vars("cell2d")
+    gcutout = gstacked.where(gstacked.nest_mask == 0, drop=True)
+    gcutout = gcutout.drop_vars("nest_mask")
+
+    # Stack LAM dataset
+    hstacked = lam_ds.stack(cell2d=("y", "x"))
+    hstacked["cell"] = xr.DataArray(np.arange(len(hstacked.cell2d)), dims=("cell2d",))
+    hstacked = hstacked.swap_dims({"cell2d": "cell"}).drop_vars("cell2d")
+    hstacked = hstacked.drop_vars(["y", "x"])
+
+    result = xr.concat([hstacked, gcutout], dim="cell", data_vars="all")
+    result.attrs["lam_index"] = len(hstacked.cell)
     return result

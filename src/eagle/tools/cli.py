@@ -1,7 +1,4 @@
 import click
-import yaml
-
-from eagle.tools.utils import open_yaml_config
 
 @click.group()
 def cli():
@@ -16,8 +13,7 @@ def inference(config_file):
     Run inference.
     """
     from eagle.tools.inference import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 inference.help = """Runs Anemoi inference pipeline over many initialization dates.
 
@@ -57,6 +53,26 @@ inference.help = """Runs Anemoi inference pipeline over many initialization date
         extract_lam (bool, optional): If True, extracts and saves only the LAM
             (Limited Area Model) domain from the output. Only used for Nested model configurations.
             Defaults to False.
+        \b
+        use_mpi (bool, optional): If True, distribute initialization dates across MPI ranks.
+            Each rank loads its own copy of the model onto its GPU. Launch with
+            ``srun --ntasks=N --gpus-per-task=1`` to bind one GPU per rank.
+            Cannot be combined with ``runner: parallel``. Defaults to False.
+        \b
+        log_path (str, optional): When using MPI, the directory where per-rank log files
+            are saved. Defaults to "eagle-logs/inference".
+
+        \b
+        base_seed (int, optional): base seed for running a stochastic model
+        \b
+        overwrite_existing (bool, optional): If True, re-run inference even when
+            the output NetCDF file already exists. If False, skip initialization
+            dates whose output files are already present. Defaults to False.
+        \b
+        vars_of_interest (list[str], optional): A subselection of variables to store
+        from the forecast. Note that variable names need the pressure level prefix here,
+        unlike all other eagle-tools workflows (e.g., t_850, t_500 rather than selecting
+        "t" and levels: [500, 850]). If None, all variables are used. Defaults to None.
     """
 
 
@@ -67,8 +83,7 @@ def postprocess(config_file):
     Run postprocessing.
     """
     from eagle.tools.postprocess import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 
 @cli.command()
@@ -78,8 +93,7 @@ def metrics(config_file):
     Compute error metrics.
     """
     from eagle.tools.metrics import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 metrics.help = """Compute grid cell area weighted RMSE and MAE.
 
@@ -106,6 +120,15 @@ metrics.help = """Compute grid cell area weighted RMSE and MAE.
         output_path (str): The directory where the output NetCDF files will be saved, as
             f"{output_path}/rmse.{model_type}.nc" and
             f"{output_path}/mae.{model_type}.nc"
+            Subregion metrics (see ``subregions`` below) are written with a
+            region suffix, e.g. f"{output_path}/rmse.{model_type}.{region}.nc".
+        \b
+        subregions (dict, optional): Geographic subregions for regional metrics, in
+            addition to the full-field ("global") metrics. Each entry maps a name to
+            latitude and/or longitude bounds, e.g.
+            ``{conus: {latitude: [25, 50], longitude: [-125, -65]}}``. Longitude
+            bounds are given in [-180, 180]. A mask file is written to
+            f"{output_path}/subregions.{model_type}.nc". Defaults to None.
         \b
         start_date (str): The first initial condition date to process, in any format
             interpretable by pandas.date_range.
@@ -116,8 +139,7 @@ metrics.help = """Compute grid cell area weighted RMSE and MAE.
         freq (str): The frequency string for generating the date range between
             start_date and end_date (e.g., "6h"), passed to pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the
             anemoi inference dataset format. Otherwise, assumes layout of dataset
@@ -157,8 +179,7 @@ def spatial(config_file):
     Compute spatial error metrics.
     """
     from eagle.tools.spatial import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 spatial.help = """Compute spatial maps of RMSE and MAE
 
@@ -200,8 +221,7 @@ spatial.help = """Compute spatial maps of RMSE and MAE
         freq (str): The frequency string for generating the date range between
             start_date and end_date (e.g., "6h"), passed to pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the
             anemoi inference dataset format. Otherwise, assumes layout of dataset
@@ -226,15 +246,98 @@ spatial.help = """Compute spatial maps of RMSE and MAE
     """
 
 
+@cli.command("spatial-forecast")
+@click.argument('config_file', type=click.Path(exists=True))
+def spatial_forecast(config_file):
+    """
+    Compute spatial error metrics between two forecasts.
+    """
+    from eagle.tools.spatial_forecast import main
+    main(config_file)
+
+spatial_forecast.help = """Compute spatial maps of RMSE and MAE between two forecast datasets.
+
+    \b
+    forecast1 is treated as the reference (target) and forecast2 as the prediction.
+    Each forecast can independently be opened as an anemoi inference dataset or a
+    forecast zarr dataset via its ``from_anemoi`` flag, and may have a different
+    model_type (e.g. one nested-global and one global). Area weights are derived
+    from forecast1's grid.
+
+    \b
+    Output filenames encode both model types:
+        f"{output_path}/spatial.rmse.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+        f"{output_path}/spatial.mae.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+        or if keep_t0=True, then as
+        f"{output_path}/spatial.rmse.perIC.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+        f"{output_path}/spatial.mae.perIC.{fc1_model_type}v{fc2_model_type}.fc1vfc2.nc"
+
+    \b
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    \b
+    Config Args:
+        forecast1 (dict): Config for the reference forecast. Keys:
+            model_type (str): The type of model grid, one of: "global", "lam",
+                "nested-lam", "nested-global".
+            path (str): Directory containing per-date NetCDF files (from_anemoi=True)
+                or path to the zarr store (from_anemoi=False).
+            from_anemoi (bool, optional): If True, opens with the anemoi inference
+                dataset format. Defaults to True.
+            lam_index (int, optional): For nested models, the number of grid points
+                belonging to the LAM domain. Defaults to None.
+            trim_edge (int, optional): Number of grid points to trim from the edges.
+                Defaults to None.
+            lcc_info (dict, optional): Lambert Conformal Conic projection details.
+                Required for LAM and nested-lam model types.
+            horizontal_regrid_kwargs (dict, optional): Options passed to
+                ufs2arco.transforms.horizontal_regrid. Required when
+                model_type="nested-global".
+            anemoi_reference_dataset_kwargs (dict, optional): kwargs passed to
+                anemoi.datasets.open_dataset to retrieve the global mask needed
+                for conservative regridding. Required when model_type="nested-global"
+                and the target grid file does not already contain a mask.
+        \b
+        forecast2 (dict): Config for the prediction forecast. Same keys as forecast1.
+        \b
+        keep_t0 (bool, optional): If True, keeps the initial condition time (t0)
+            as a separate dimension in the output file. Defaults to False.
+
+    \b
+    Config Args common to spatial.py:
+        output_path (str): The directory where the output NetCDF files will be saved.
+        \b
+        start_date (str): The first initial condition date to process.
+        \b
+        end_date (str): The last initial condition date to process.
+        \b
+        freq (str): Frequency string for the date range (e.g., "6h").
+        \b
+        lead_time (int): Length of forecast in hours.
+        \b
+        levels (list, optional): A list of vertical levels to subset from both
+            forecasts. Defaults to None.
+        \b
+        vars_of_interest (list[str], optional): A list of variable names to include
+            from both forecasts. Defaults to None.
+        \b
+        use_mpi (bool, optional): If True, distribute initialization dates across MPI ranks.
+            Launch with ``srun --ntasks=N`` to use N ranks. Defaults to False.
+        \b
+        log_path (str, optional): When using MPI, the directory where per-rank log files
+            are saved. Defaults to "eagle-logs/spatial_forecast".
+    """
+
+
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
 def spectra(config_file):
     """
-    Compute spectra error metrics.
+    Compute power spectra.
     """
     from eagle.tools.spectra import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
 spectra.help = """Compute the Power Spectrum averaged over all initial conditions
 
@@ -270,8 +373,7 @@ spectra.help = """Compute the Power Spectrum averaged over all initial condition
         freq (str): The frequency string for generating the date range between
             start_date and end_date (e.g., "6h"), passed to pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         from_anemoi (bool, optional): If True, opens forecast data using the
             anemoi inference dataset format. Otherwise, assumes layout of dataset
@@ -295,6 +397,124 @@ spectra.help = """Compute the Power Spectrum averaged over all initial condition
             trim from the edges of the forecast dataset. Defaults to None.
     """
 
+@cli.command("performance-heatmap")
+@click.argument('config_file', type=click.Path(exists=True))
+def performance_heatmap(config_file):
+    """
+    Plot regional model-performance improvement heatmaps.
+    """
+    from eagle.tools.performance_heatmap import main
+    main(config_file)
+
+performance_heatmap.help = """Plot regional model-performance improvement heatmaps.
+
+    \b
+    This is one of the two supported scorecard performance plot commands
+    (heatmap and violin). It compares a candidate model against a baseline
+    model using metric NetCDF files, commonly RMSE files from obs_metrics or
+    scorecard workflows. The plot is controlled by a YAML or JSON config file.
+
+    \b
+    Typical use:
+        eagle-tools performance-heatmap src/eagle/tools/config/performance_heatmap.yaml
+
+    \b
+    Built-in model keys:
+        nested_eagle_global, nested_eagle_lam, gfs, aifs, aigfs, ecmwf_ifs, hrrr
+
+    \b
+    Config Args:
+        input_path (str): Root directory containing one subdirectory per model.
+        \b
+        output_path (str): Directory where heatmap PNG files are written.
+        \b
+        models (dict): Model definitions with subdir, label, color, model_type,
+            and file patterns. If subdir is omitted, the model key is used.
+            A full path can still be provided to override input_path.
+            Patterns may use {metric}, {model}, {model_type}, and {region}.
+        \b
+        candidate_model (str): Model key for the model being evaluated.
+        \b
+        baseline_model (str): Model key used as the baseline.
+        \b
+        regions (list[dict]): Regions to plot. Each region needs a key and may
+            include title and aliases for matching region coordinates.
+        \b
+        variables (list[dict]): Variable groups and rows. Each row needs var,
+            label, and levels. Use levels: null for surface variables.
+        \b
+        forecast_hours (list[int], optional): Forecast hours to plot. If omitted,
+            days are converted to 24-hour intervals.
+        \b
+        start_date/end_date (str, optional): Date window for selecting t0 values.
+        \b
+        years/months (list[int], optional): Year and month filters for t0 values.
+        \b
+        require_exact_time_match (bool, optional): If True, compare only exact
+            overlapping t0 and fhr samples across selected models. Defaults to True.
+        \b
+        output (str, optional): Output image filename. If omitted, the filename
+            includes plot type, regions, models, metric, and lead range.
+    """
+
+
+@cli.command("performance-violin")
+@click.argument('config_file', type=click.Path(exists=True))
+def performance_violin(config_file):
+    """
+    Plot model-performance violin comparisons.
+    """
+    from eagle.tools.performance_violin import main
+    main(config_file)
+
+performance_violin.help = """Plot model-performance violin comparisons.
+
+    \b
+    This is one of the two supported scorecard performance plot commands
+    (heatmap and violin). It pools selected variables, levels, lead times, and
+    regions into normalized model-response distributions. It writes a PNG and
+    a summary CSV.
+
+    \b
+    Typical use:
+        eagle-tools performance-violin src/eagle/tools/config/performance_violin.yaml
+
+    \b
+    Built-in model keys:
+        nested_eagle_global, nested_eagle_lam, gfs, aifs, aigfs, ecmwf_ifs, hrrr
+
+    \b
+    Config Args:
+        input_path (str): Root directory containing one subdirectory per model.
+        \b
+        output_path (str): Directory where violin PNG files and summary CSVs are written.
+        \b
+        models (dict): Model definitions with subdir, label, color, model_type,
+            and file patterns. If subdir is omitted, the model key is used.
+            A full path can still be provided to override input_path.
+            Patterns may use {metric}, {model}, {model_type}, and {region}.
+        \b
+        plots (list[dict], optional): One or more violin plot definitions. Each
+            plot controls selected models, regions, lead_hours, title, and output.
+        \b
+        variables (list[dict]): Variable groups and rows. Each row needs var,
+            label, and levels. Use levels: null for surface variables.
+        \b
+        equal_samples (bool, optional): If True, each variable/level uses the
+            same number of samples from each selected model before normalization.
+            Defaults to True.
+        \b
+        start_date/end_date (str, optional): Date window for selecting t0 values.
+        \b
+        years/months (list[int], optional): Year and month filters for t0 values.
+        \b
+        require_exact_time_match (bool, optional): If True, compare only exact
+            overlapping t0 and fhr samples across selected models. Defaults to True.
+        \b
+        output (str, optional): Output image filename. If omitted, the filename
+            includes plot type, regions, models, metric, and lead range.
+    """
+
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
 def figures(config_file):
@@ -302,8 +522,7 @@ def figures(config_file):
     Visualize the fields as figures
     """
     from eagle.tools.visualize import main
-    config = open_yaml_config(config_file)
-    main(config, mode="figure")
+    main(config_file, mode="figure")
 
 figures.help = """Create figures or movies visually comparing predictions to targets
 
@@ -357,8 +576,7 @@ figures.help = """Create figures or movies visually comparing predictions to tar
         start_date (str): The first initial condition date to process, in any format
             interpretable by pandas.date_range.
         \b
-        lead_time (str): A string representing the forecast lead time (e.g., "240h")
-            used as part of the forecast input filename.
+        lead_time (int): Length of forecast in hours.
         \b
         lam_index (int, optional): For nested models (e.g., model_type="nested-lam"), this integer
             specifies the number of grid points belonging to the LAM domain.
@@ -384,8 +602,7 @@ def movies(config_file):
     Visualize the fields as figures
     """
     from eagle.tools.visualize import main
-    config = open_yaml_config(config_file)
-    main(config, mode="movie")
+    main(config_file, mode="movie")
 
 movies.help = figures.help
 
@@ -397,8 +614,43 @@ def prewxvx(config_file):
     Postprocess forecast files for wxvx
     """
     from eagle.tools.prewxvx import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
+
+prewxvx.help = """Postprocess forecast files for wxvx.
+
+    \b
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    \b
+    Config Args:
+        forecast_path (str): The directory path containing the forecast datasets.
+        \b
+        output_path (str): The directory where output NetCDF files will be saved.
+        \b
+        model_type (str): The model type identifier.
+        \b
+        lead_time (int): Length of forecast in hours.
+        \b
+        start_date (str): The first initial condition date to process.
+        \b
+        end_date (str): The last initial condition date to process.
+        \b
+        freq (str): Frequency string for the date range (e.g., "6h").
+        \b
+        from_anemoi (bool, optional): If True, opens forecasts using the
+            anemoi inference dataset format. Defaults to True.
+        \b
+        chunks (dict, optional): A dictionary mapping dimension names to chunk
+            sizes (e.g., ``{time: 1}``). When provided, the output dataset is
+            chunked accordingly before writing to NetCDF. Dimensions not listed
+            are left unchunked. Defaults to None (no chunking).
+        \b
+        rename_curvilinear_coords_to_latlon (bool, optional): For LAM model types,
+            if True, renames the curvilinear ``x``/``y`` coordinates to
+            ``longitude``/``latitude``. Set to False to keep the original
+            coordinate names. Defaults to True for backward compatibility.
+    """
 
 
 @cli.command()
@@ -408,9 +660,106 @@ def postwxvx(config_file):
     Gather wxvx stats
     """
     from eagle.tools.postwxvx import main
-    config = open_yaml_config(config_file)
-    main(config)
+    main(config_file)
 
+@cli.command("obs-metrics")
+@click.argument('config_file', type=click.Path(exists=True))
+def obs_metrics(config_file):
+    """Verify forecasts against observations."""
+    from eagle.tools.obs_metrics import main
+    main(config_file)
+
+obs_metrics.help = """Verify forecasts against real observations (e.g., radiosondes).
+
+    \b
+    This workflow loads forecast data and compares it against irregular
+    observation data (station-based, not gridded). Forecasts are interpolated
+    to observation locations, and RMSE, MAE, bias, and count are computed
+    per forecast hour. Observation datasets and variable mappings are defined
+    in config/obs_metrics.yaml.
+
+    \b
+    Note:
+        Observations are loaded from nnja_ai.DataCatalog (parquet from GCS).
+        Quality control filtering is applied per-variable using NCEP PREPBUFR codes.
+
+    \b
+    Note:
+        The arguments documented here are passed via a config dictionary.
+
+    \b
+    Config Args:
+        forecast_path (str): The directory path containing the forecast datasets.
+        \b
+        lead_time (int): Length of forecast in hours.
+        \b
+        output_path (str): The directory where output NetCDF files will be saved, as
+            f"{output_path}/{metric}.convobs.{model_type}.nc"
+        \b
+        start_date (str): The first initial condition date to process.
+        \b
+        end_date (str): The last initial condition date to process.
+        \b
+        freq (str): Frequency string for the date range (e.g., "12h").
+        \b
+        vars_of_interest (list[str]): Variable names to verify. Names are mapped to
+            canonical names via config/rename.yaml. Derived variables like wind_speed
+            and 10m_wind_speed are supported (include their components too, e.g. u, v).
+        \b
+        levels (list[int], optional): Pressure levels (hPa) for upper-air variables.
+            If not provided, all levels present in the forecast dataset are used.
+        \b
+        model_type (str, optional): The type of model grid. Defaults to "global".
+        \b
+        temporal_window (str, optional): Time window (+/-) for matching obs to forecast
+            valid times. Defaults to "30min".
+        \b
+        max_qc_value (int, optional): Keep obs with QC flag <= this value. NaN QC flags
+            are always kept. Defaults to 2.
+        \b
+        n_members (int, optional): Number of ensemble members. If > 1, ensemble metrics
+            (spread, CRPS, ensemble mean RMSE/MAE/bias) are also computed. Defaults to 1.
+        \b
+        subregions (dict, optional): Geographic subregions for regional metrics. Each entry
+            maps a name to latitude and/or longitude bounds.
+        \b
+        from_anemoi (bool, optional): If True, opens forecast data using the anemoi
+            inference dataset format. Defaults to True.
+        \b
+        lam_index (int, optional): Index for LAM selection in nested models.
+        \b
+        lcc_info (dict, optional): Lambert Conformal Conic projection details for LAM grids.
+        \b
+        trim_forecast_edge (list[int], optional): Additional edge trimming for LAM grids.
+        \b
+        use_mpi (bool, optional): If True, distribute initialization dates across MPI ranks.
+        \b
+        log_path (str, optional): When using MPI, the directory for per-rank log files.
+    """
+
+
+@cli.command()
+@click.option('--offline_path', required=True, type=click.Path(exists=True), help='Path to the experiment mlflow logs')
+@click.option('--local_id', required=True, type=str, help='The generated 18 character experiment ID')
+@click.option('--remote_name', required=True, type=str, help='The experiment group to show up in on AML')
+def amlsync(offline_path, local_id, remote_name):
+    """
+    Sync offline MLflow logs to Azure Machine Learning (AML).
+
+    Note:
+        Users must have the following credentials defined as environment variables:
+        * AZURE_TENANT_ID
+        * AZURE_SUBSCRIPTION_ID
+        * AZURE_CLIENT_ID
+        * AZURE_CLIENT_SECRET
+    """
+
+    from eagle.tools.amlsync import main
+    main(
+        offline_path=offline_path,
+        local_id=local_id,
+        remote_name=remote_name,
+    )
 
 if __name__ == "__main__":
     cli()

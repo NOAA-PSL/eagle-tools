@@ -9,7 +9,6 @@ import pandas as pd
 import ufs2arco.utils
 from ufs2arco.transforms.horizontal_regrid import horizontal_regrid
 
-from eagle.tools.log import setup_simple_log
 from eagle.tools.data import open_anemoi_dataset_with_xarray, open_anemoi_inference_dataset, open_forecast_zarr_dataset
 from eagle.tools.metrics import get_gridcell_area_weights
 from eagle.tools.nested import prepare_regrid_target_mask
@@ -24,6 +23,7 @@ def postprocess(xds, keep_t0=None):
         xds["t0"] = xr.DataArray(t0, coords={"t0": t0})
         xds = xds.set_coords("t0")
     xds["lead_time"] = xds["time"] - xds["time"][0]
+    xds["lead_time"].attrs = {} # remove any calendar details from the attributes
     xds["fhr"] = xr.DataArray(
         xds["lead_time"].values.astype("timedelta64[h]").astype(int),
         coords=xds.time.coords,
@@ -46,6 +46,27 @@ def rmse(target, prediction, weights=1., keep_t0=False):
     return postprocess(xds, keep_t0)
 
 
+def signed_difference(target, prediction, keep_t0=False):
+    """Member-mean signed difference ``target - prediction`` per gridcell.
+
+    Unweighted, in physical units. This is the sufficient statistic for an
+    after-the-fact bias/variance decomposition: at each gridcell and lead time,
+    over a collection of initial conditions ``t0``,
+
+        bias = mean_t0[d],   variance = var_t0[d],   MSE = mean_t0[d**2]
+
+    so any grouping of the ``t0`` (e.g. by valid hour for a diurnal cycle, or by
+    season) can be applied later.
+    """
+    result = {}
+    for key in prediction.data_vars:
+        d = (target[key] - prediction[key]).mean("member")
+        result[key] = d.compute()
+
+    xds = xr.Dataset(result)
+    return postprocess(xds, keep_t0)
+
+
 def mae(target, prediction, weights=1., keep_t0=False):
     result = {}
     for key in prediction.data_vars:
@@ -63,7 +84,13 @@ def main(config):
 
     See ``eagle-tools spatial --help`` or cli.py for help
     """
-    setup_simple_log()
+    if isinstance(config, str):
+        from eagle.tools.utils import setup
+        config = setup(config, "spatial")
+
+    topo = config["topo"]
+    if config["use_mpi"]:
+        raise NotImplementedError
 
     # options used for verification and inference datasets
     model_type = config["model_type"]
@@ -80,7 +107,7 @@ def main(config):
             ((forecast_regrid_kwargs is not None) and (model_type != "nested-global"))
 
     if model_type == "nested-global":
-        forecast_regrid_kwargs["target_grid_path"] = prepare_regrid_target_mask(
+        forecast_regrid_kwargs["target_grid_path"], _ = prepare_regrid_target_mask(
             anemoi_reference_dataset_kwargs=config["anemoi_reference_dataset_kwargs"],
             horizontal_regrid_kwargs=forecast_regrid_kwargs,
         )
@@ -107,7 +134,7 @@ def main(config):
     rmse_container = list() if keep_t0 else None
     mae_container = list() if keep_t0 else None
 
-    logger.info(f" --- Computing Spatial Error Metrics --- ")
+    logger.info(f"Computing Spatial Error Metrics")
     logger.info(f"Initial Conditions:\n{dates}")
     for t0 in dates:
 
@@ -116,7 +143,7 @@ def main(config):
         if config.get("from_anemoi", True):
 
             fds = open_anemoi_inference_dataset(
-                f"{config['forecast_path']}/{st0}.{config['lead_time']}.nc",
+                f"{config['forecast_path']}/{st0}.{config['lead_time']}h.nc",
                 model_type=model_type,
                 lam_index=lam_index,
                 trim_edge=config.get("trim_forecast_edge", None),
@@ -159,9 +186,9 @@ def main(config):
                 mae_container += this_mae / len(dates)
 
         logger.info(f"Done with {st0}")
-    logger.info(f" --- Done Computing Metrics --- \n")
+    logger.info(f"Done Computing Metrics")
 
-    logger.info(f" --- Combining & Storing Results --- ")
+    logger.info(f"Combining & Storing Results")
     for varname, xda in zip(["rmse", "mae"], [rmse_container, mae_container]):
         if keep_t0:
             fname = f"{config['output_path']}/spatial.{varname}.perIC.{config['model_type']}.nc"
@@ -170,4 +197,4 @@ def main(config):
             fname = f"{config['output_path']}/spatial.{varname}.{config['model_type']}.nc"
         xda.to_netcdf(fname)
         logger.info(f"Stored result: {fname}")
-    logger.info(f" --- Done Storing Spatial Error Metrics --- \n")
+    logger.info(f"Done Storing Spatial Error Metrics")

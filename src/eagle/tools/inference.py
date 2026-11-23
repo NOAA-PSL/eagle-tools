@@ -56,16 +56,25 @@ def create_anemoi_config(
         "device": main_config.get("device", "cuda"),  # to allow switching between CPU/GPU inference
         "precision": main_config.get("precision", None),
     }
+    patch_metadata = main_config.get("patch_metadata", None)
+    if patch_metadata is not None:
+        config["patch_metadata"] = patch_metadata
+    
     # Load dict that maps output format long name to corresponding file extension
     format_config = _load_format_config()
     # Set the output format(s); i.e., netcdf, zarr, grib
     output_format = main_config['output_format']
-    print(f"OUTPUT FORMAT: {output_format}")
     if output_format == "tee":
         formats = main_config["tee"]
     else:
         formats = [output_format]
-    print(f"FORMATS: {formats}")
+
+    variables_select = main_config.get("vars_of_interest", None)
+    variables_drop = main_config.get("vars_to_drop", None)
+    
+    if variables_select is not None and variables_drop is not None:
+        raise ValueError("Cannot specify both 'vars_of_interest' and 'vars_to_drop' in the config.") 
+
     output_paths = {}
     for f in formats:
         # Set the output file extension; i.e., netcdf:nc, zarr:zarr, grib:grib
@@ -75,12 +84,31 @@ def create_anemoi_config(
             fname = fname.replace(f".{ext}", f".member{member:03d}.{ext}")
         if main_config.get("extract_lam", False):
             fname = fname.replace(f".{ext}", f"lam.{ext}")
-        output_paths[f] =  fname
+        
+        if ext == "zarr":
+            path_var = "store"
+        else:
+            path_var = "path"
+        
+        if variables_select is not None:
+            output_paths[f] = {
+                path_var: fname,
+                "variables": {
+                    "select": list(variables_select)
+                    }
+                }
+        elif variables_drop is not None:
+            output_paths[f] = {
+                path_var: fname,
+                "variables": {
+                    "drop": list(variables_drop)
+                    }
+                }
+        else:
+            output_paths[f] = {path_var: fname}
+
     if output_format == "tee":
         output_paths = {"tee": [{key: value} for key, value in output_paths.items()]}
-
-    print(f"OUTPUT PATHS: {output_paths}")
-    variables = main_config.get("vars_of_interest", None)
 
     if main_config.get("extract_lam", False):
         config["output"] = {
@@ -88,15 +116,8 @@ def create_anemoi_config(
                 "output": output_paths
             },
         }
-        if variables is not None:
-            output_variables = {}
-            for f in formats:
-                config["output"]["extract_lam"]["output"][f]["variables"] = list(variables)
     else:
         config["output"] = output_paths
-        if variables is not None:
-            for f in formats:
-                 config["output"][f]["variables"] = list(variables)
     with open('ANEMOI_CONFIG_TEST.yaml', 'w', encoding='utf-8') as f:
         yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
     return config, fname

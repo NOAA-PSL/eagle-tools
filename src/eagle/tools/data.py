@@ -6,6 +6,7 @@ import yaml
 import numpy as np
 import xarray as xr
 import pandas as pd
+from contextlib import ExitStack
 
 import anemoi.datasets
 

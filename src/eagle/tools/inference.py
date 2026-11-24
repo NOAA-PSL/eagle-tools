@@ -3,15 +3,34 @@ import os
 
 import numpy as np
 import pandas as pd
+from psutil import users
 import yaml
 
 from anemoi.inference.config.run import RunConfiguration
 from anemoi.inference.runners import create_runner
 
-import pathlib
-import importlib
+import importlib.resources
 
 logger = logging.getLogger("eagle.tools")
+
+from importlib.metadata import version
+from packaging.version import Version
+
+_MIN_ANEMOI_INFERENCE_VERSION = Version("0.13.0")
+
+
+def _warn_if_old_anemoi_inference() -> False:
+    installed_version = Version(version("anemoi-inference"))
+    if installed_version < _MIN_ANEMOI_INFERENCE_VERSION:
+        logger.warning(
+            "Installed anemoi-inference version %s predates the October 21 2026 "
+            "release (0.13.0). Upgrade with "
+            "`pip install --upgrade 'anemoi-inference>=0.13.0'`.",
+            installed_version,
+        )
+        return True
+    else:
+        return False
 
 def _load_format_config():
     """Load file format extension configuration from format_extensions.yaml."""
@@ -71,6 +90,9 @@ def create_anemoi_config(
 
     variables_select = main_config.get("vars_of_interest", None)
     variables_drop = main_config.get("vars_to_drop", None)
+    output_options = main_config.get("output_options", None)
+
+    dated_anemoi_installed = _warn_if_old_anemoi_inference()
     
     if variables_select is not None and variables_drop is not None:
         raise ValueError("Cannot specify both 'vars_of_interest' and 'vars_to_drop' in the config.") 
@@ -84,29 +106,31 @@ def create_anemoi_config(
             fname = fname.replace(f".{ext}", f".member{member:03d}.{ext}")
         if main_config.get("extract_lam", False):
             fname = fname.replace(f".{ext}", f"lam.{ext}")
-        
+
         if ext == "zarr":
             path_var = "store"
         else:
             path_var = "path"
-        
-        if variables_select is not None:
-            output_paths[f] = {
-                path_var: fname,
-                "variables": {
-                    "select": list(variables_select)
-                    }
-                }
-        elif variables_drop is not None:
-            output_paths[f] = {
-                path_var: fname,
-                "variables": {
-                    "drop": list(variables_drop)
-                    }
-                }
-        else:
-            output_paths[f] = {path_var: fname}
 
+        output_paths[f] = {path_var: fname}
+
+        if variables_select is not None:
+            if dated_anemoi_installed:
+                output_paths[f].update({"variables": list(variables_select)})
+            else:
+                output_paths[f].update({"variables": {
+                                "select": list(variables_select)
+                                }})
+        if variables_drop is not None:
+            if dated_anemoi_installed:
+                logger.warning("Using 'vars_to_drop' with anemoi-inference < 0.13.0 may not work as expected.")
+            else:
+                output_paths[f].update({"variables": {
+                                "drop": list(variables_drop)
+                                }})
+        if output_options is not None:
+            output_paths[f].update(output_options)
+    
     if output_format == "tee":
         output_paths = {"tee": [{key: value} for key, value in output_paths.items()]}
 

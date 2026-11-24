@@ -135,6 +135,22 @@ def test_subsample_computes_wind_speed(speed, u, v):
     assert result[speed].attrs["units"] == "m/s"
 
 
+@pytest.mark.parametrize("speed", ["10m_wind_speed", "80m_wind_speed", "100m_wind_speed", "wind_speed"])
+def test_wind_speed_raises_on_unrecognized_components(speed):
+    xds = make_cell_ds(varnames=("eastward_wind", "northward_wind"))
+
+    with pytest.raises(KeyError, match=f"could not compute '{speed}'"):
+        data.subsample(xds, vars_of_interest=[speed])
+
+
+def test_wind_speed_does_not_reuse_another_heights_components():
+    # Only 10m winds are present, so 80m must fail, not silently reuse the 10m components
+    xds = make_cell_ds(varnames=("u10", "v10"))
+
+    with pytest.raises(KeyError, match="could not compute '80m_wind_speed'"):
+        data.subsample(xds, vars_of_interest=["10m_wind_speed", "80m_wind_speed"])
+
+
 def test_rename_uses_long_names():
     xds = make_cell_ds(varnames=("t2m", "t", "not_in_rename_yaml"))
 

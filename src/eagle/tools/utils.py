@@ -1,4 +1,6 @@
 import os
+import sys
+import subprocess
 import logging
 import yaml
 import warnings
@@ -87,6 +89,8 @@ def _srun_used() -> bool:
             return parent in ('srun', 'slurmstepd')
         except:
             return False
+    return False
+
 def _mpirun_used() -> bool:
     """Detect if the process was launched via mpirun or mpiexec.
 

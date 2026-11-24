@@ -479,6 +479,15 @@ def _wind_speed(u: xr.DataArray, v: xr.DataArray, long_name: str) -> xr.DataArra
         },
     )
 
+def _unrecognized_wind_components(speed_name: str, u_names: Sequence[str]) -> KeyError:
+    """
+    Error for when none of the known U component names for a wind speed are in the dataset.
+    """
+    return KeyError(
+        f"eagle.tools.data.calc_wind_speed: could not compute '{speed_name}', since none of the "
+        f"recognized U wind component names {list(u_names)} are in the dataset"
+    )
+
 def calc_wind_speed(xds: xr.Dataset, vars_of_interest: Sequence[str]) -> xr.Dataset:
     """
     Calculates and adds wind speed variables (10m, 80m, 100m, or bulk) if requested.
@@ -501,6 +510,8 @@ def calc_wind_speed(xds: xr.Dataset, vars_of_interest: Sequence[str]) -> xr.Data
         elif "10m_u_component_of_wind" in xds:
             u = xds["10m_u_component_of_wind"]
             v = xds["10m_v_component_of_wind"]
+        else:
+            raise _unrecognized_wind_components("10m_wind_speed", ["ugrd10m", "u10", "10m_u_component_of_wind"])
         xds["10m_wind_speed"] = _wind_speed(u, v, "10m Wind Speed")
 
     if "80m_wind_speed" in vars_of_interest:
@@ -513,6 +524,8 @@ def calc_wind_speed(xds: xr.Dataset, vars_of_interest: Sequence[str]) -> xr.Data
         elif "80m_u_component_of_wind" in xds:
             u = xds["80m_u_component_of_wind"]
             v = xds["80m_v_component_of_wind"]
+        else:
+            raise _unrecognized_wind_components("80m_wind_speed", ["ugrd80m", "u80", "80m_u_component_of_wind"])
         xds["80m_wind_speed"] = _wind_speed(u, v, "80m Wind Speed")
 
     if "100m_wind_speed" in vars_of_interest:
@@ -525,6 +538,8 @@ def calc_wind_speed(xds: xr.Dataset, vars_of_interest: Sequence[str]) -> xr.Data
         elif "100m_u_component_of_wind" in xds:
             u = xds["100m_u_component_of_wind"]
             v = xds["100m_v_component_of_wind"]
+        else:
+            raise _unrecognized_wind_components("100m_wind_speed", ["ugrd100m", "u100", "100m_u_component_of_wind"])
         xds["100m_wind_speed"] = _wind_speed(u, v, "100m Wind Speed")
 
     if "wind_speed" in vars_of_interest:
@@ -537,6 +552,8 @@ def calc_wind_speed(xds: xr.Dataset, vars_of_interest: Sequence[str]) -> xr.Data
         elif "u_component_of_wind" in xds:
             u = xds["u_component_of_wind"]
             v = xds["v_component_of_wind"]
+        else:
+            raise _unrecognized_wind_components("wind_speed", ["ugrd", "u", "u_component_of_wind"])
         xds["wind_speed"] = _wind_speed(u, v, "Wind Speed")
     return xds
 

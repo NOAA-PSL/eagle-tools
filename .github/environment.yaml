@@ -1,0 +1,32 @@
+# The CI env: just what eagle-tools needs to import + test.
+# Mirrors [project.dependencies] in pyproject.toml plus the test tooling.
+name: eagle
+channels:
+  - conda-forge
+  - nodefaults  # conda-forge only, otherwise can get zarr/numcodecs issues
+dependencies:
+  - python=3.12
+  # runtime deps
+  - click
+  - numpy
+  - scipy
+  - pandas
+  - xarray
+  - dask-core
+  - zarr<3
+  - netcdf4
+  - pyyaml
+  - matplotlib
+  - cartopy
+  - cmocean
+  - xesmf  # conda only, pulls in esmpy; ufs2arco's horizontal_regrid imports it
+  # test tooling
+  - setuptools_scm>=8
+  - pytest
+  - coverage
+  - pip
+  - pip:
+      - ufs2arco>=0.17.2
+      - anemoi-datasets
+      - anemoi-inference
+      - nnja-ai[complete]>=1.0.0

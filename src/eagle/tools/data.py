@@ -6,6 +6,7 @@ import yaml
 import numpy as np
 import xarray as xr
 import pandas as pd
+from contextlib import ExitStack
 
 import anemoi.datasets
 
@@ -274,7 +275,9 @@ def open_anemoi_inference_dataset(
         When ``model_type = "nested-global"``, the dataset is regridded to a common global resolution.
 
     Args:
-        path (str): Path to the dataset.
+        path (str): Path to the dataset. Format is inferred from the extension:
+            netcdf (``.nc``), zarr (``.zarr``), or GRIB (``.grib``, ``.grib2``, ``.grb``).
+            GRIB inputs are handled by ``open_anemoi_grib_dataset`` (``model_type`` must be "global" or "lam").
         model_type (str): "nested-lam", "nested-global", or "global".
         lam_index (int, optional): Index for LAM selection in nested models.
         levels (Sequence[float | int], optional): Vertical levels to select.
@@ -295,10 +298,42 @@ def open_anemoi_inference_dataset(
     Returns:
         xr.Dataset: The inference dataset.
     """
-
+    
     assert model_type in ("nested", "nested-lam", "nested-cutout", "nested-global", "global")
 
-    ids = xr.open_dataset(path, chunks="auto")
+    path_str = str(path).rstrip("/\\")
+    suffix = path_str.lower().rsplit(".", 1)[-1] if "." in path_str.rsplit("/", 1)[-1] else ""
+    if suffix in ("grib", "grib1", "grib2", "grb", "grb1", "grb2"):
+        fmt = "grib"
+    elif suffix == "zarr":
+        fmt = "zarr"
+    elif suffix in ("nc", "nc4", "netcdf", "cdf"):
+        fmt = "netcdf"
+    else:
+        raise ValueError(
+            f"Cannot infer format of {path}; expected a netcdf (.nc), zarr (.zarr), or grib (.grib/.grib2/.grb) input"
+        )
+
+    if fmt == "grib":
+        if "nested" in model_type:
+            raise NotImplementedError("GRIB inputs do not support nested model types")
+        return open_anemoi_grib_dataset(
+            path,
+            model_type=model_type,
+            levels=levels,
+            vars_of_interest=vars_of_interest,
+            trim_edge=trim_edge,
+            rename_to_longnames=rename_to_longnames,
+            load=load,
+            reshape_cell_to_2d=reshape_cell_to_2d,
+            member=member,
+            lcc_info=lcc_info,
+        )
+
+    if fmt == "zarr":
+        ids = xr.open_zarr(path, chunks="auto")
+    else:
+        ids = xr.open_dataset(path, chunks="auto")
     xds = convert_anemoi_inference_dataset(ids)
     # TODO: add this next line to ufs2arco, if keeping the convert function in that repo
     xds["cell"] = xr.DataArray(
@@ -337,6 +372,119 @@ def open_anemoi_inference_dataset(
         xds = reshape_cell_dim(xds, model_type, lcc_info)
 
     return xds
+
+def open_anemoi_grib_dataset(
+    path: str,
+    model_type: str,
+    levels: Sequence[float | int] | None = None,
+    vars_of_interest: Sequence[str] | None = None,
+    trim_edge: Sequence[int] | None = None,
+    rename_to_longnames: bool = False,
+    load: bool = False,
+    reshape_cell_to_2d: bool = False,
+    member: int | None = None,
+    lcc_info: dict | None = None,
+    backend_kwargs: dict | None = None,
+) -> xr.Dataset:
+    """
+    Opens an Anemoi GRIB forecast for one initialization time using cfgrib.
+
+    Surface and upper-air GRIB groups are merged into one dataset. Valid times
+    become ``time``, pressure levels become ``level`` (hPa), and ensemble numbers
+    become ``member``. Spatial dimensions are flattened to ``cell`` by default.
+    Conflicting fields raise an error rather than being silently overwritten.
+
+    Args:
+        path (str): Path to the GRIB file.
+        model_type (str): ``"global"`` or ``"lam"``; nested grids are not supported.
+        levels (Sequence[float | int], optional): Pressure levels in hPa to select.
+        vars_of_interest (Sequence[str], optional): Variables to keep, using cfgrib
+            short names (e.g. ``t2m``, ``u10``, ``t``) or derived wind-speed names.
+        trim_edge (Sequence[int], optional): Additional LAM boundary trimming.
+        rename_to_longnames (bool, optional): Apply the standard variable renaming.
+        load (bool, optional): Load the selected data into memory.
+        reshape_cell_to_2d (bool, optional): Return spatial dimensions instead of cells.
+        member (int, optional): Ensemble member number to select.
+        lcc_info (dict, optional): Post-trim LAM grid lengths ``n_x`` and ``n_y``.
+        backend_kwargs (dict, optional): Options passed to cfgrib, including
+            ``filter_by_keys``. Index-file writing is disabled by default.
+
+    Returns:
+        xr.Dataset: The processed forecast. Close it when finished to release
+        backend resources.
+    """
+    import cfgrib
+
+    if model_type not in ("global", "lam"):
+        raise ValueError("GRIB model_type must be 'global' or 'lam'")
+    if trim_edge is not None and model_type == "lam" and lcc_info is None:
+        raise ValueError("lcc_info is required when trimming a LAM GRIB dataset")
+
+    options = {"indexpath": "", **(backend_kwargs or {}), "errors": "raise"}
+    groups = cfgrib.open_datasets(path, chunks="auto", backend_kwargs=options)
+    if not groups:
+        raise ValueError(f"No GRIB fields found in {path}")
+
+    with ExitStack() as resources:
+        for group in groups:
+            resources.callback(group.close)
+
+        datasets = []
+        for group in groups:
+            if group["time"].size != 1:
+                raise ValueError("GRIB files must contain a single initialization time")
+            valid_time = group["valid_time"]
+            group = group.drop_vars(["time", "step"])
+            if valid_time.ndim == 0:
+                group = group.drop_vars("valid_time").expand_dims(
+                    time=[valid_time.values]
+                )
+            else:
+                group = group.swap_dims({valid_time.dims[0]: "valid_time"})
+                group = group.rename({"valid_time": "time"})
+
+            for coordinate in ("isobaricInhPa", "isobaricInPa"):
+                if coordinate in group.coords:
+                    if group[coordinate].ndim == 0:
+                        group = group.expand_dims(coordinate)
+                    if coordinate == "isobaricInPa":
+                        group = group.assign_coords(
+                            {coordinate: group[coordinate] / 100}
+                        )
+                    group = group.rename({coordinate: "level"})
+                    group["level"].attrs["units"] = "hPa"
+
+            # Scalar surface/height coordinates differ between otherwise
+            # compatible groups and must not constrain the merge.
+            scalar_coords = [
+                key for key in group.coords
+                if group[key].ndim == 0 and key not in ("number", "time")
+            ]
+            group = group.drop_vars(scalar_coords)
+            if "number" in group.coords:
+                group = group.rename({"number": "member"})
+            datasets.append(group)
+
+        xds = xr.merge(datasets, compat="no_conflicts", join="outer")
+        xds = subsample(xds, levels, vars_of_interest, member=member)
+        if "values" in xds.dims:
+            xds = xds.rename({"values": "cell"})
+        if "cell" not in xds.dims:
+            xds = flatten_to_cell(xds)
+        else:
+            xds = xds.assign_coords(cell=np.arange(xds.sizes["cell"]))
+
+        if trim_edge is not None and model_type == "lam":
+            xds = trim_xarray_edge(xds, lcc_info, trim_edge, ["y", "x"])
+        if rename_to_longnames:
+            xds = rename(xds)
+        if reshape_cell_to_2d:
+            xds = reshape_cell_dim(xds, model_type, lcc_info)
+        if load:
+            xds = xds.load()
+
+        xds.set_close(resources.pop_all().close)
+        return xds
 
 def open_forecast_zarr_dataset(
     path: str,

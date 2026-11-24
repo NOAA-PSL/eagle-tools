@@ -1,0 +1,14 @@
+checkpoint_path: "static/global-mini.sanitised.ckpt"
+device: cpu
+lead_time: 24
+
+start_date: "2026-01-12T06:00:00"
+end_date: "2026-01-12T06:00:00"
+freq: "6h"
+
+input_dataset_kwargs:
+  dataset: "gfs.zarr"
+
+output_path: forecasts
+
+output_format: netcdf

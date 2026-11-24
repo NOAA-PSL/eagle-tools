@@ -1,0 +1,4 @@
+# File extensions per file format type
+netcdf: nc
+grib: grib
+zarr: zarr

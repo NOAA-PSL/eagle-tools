@@ -1,0 +1,31 @@
+forecast_path: forecasts
+output_path: postprocessed
+
+model_type: global
+from_anemoi: true
+
+start_date: "2026-01-12T06:00:00"
+end_date: "2026-01-12T06:00:00"
+freq: "6h"
+lead_time: 24
+
+format: grib
+
+per_timestep: True
+
+timestep_subset:
+  take_subset: True
+  subset_list:
+    - "2026-01-12T12:00:00"
+    - "2026-01-12T18:00:00"
+
+per_variable: True
+
+variable_subset:
+  take_subset: True
+  subset_list:
+    - t2m
+    - sp
+    - u
+    - v
+

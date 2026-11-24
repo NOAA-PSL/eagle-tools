@@ -1,0 +1,63 @@
+checkpoint: static/global-mini.sanitised.ckpt
+date: 2026-01-12T06
+lead_time: 24
+input:
+  dataset:
+    dataset: gfs.zarr
+runner: default
+device: cpu
+precision: null
+
+patch_metadata:
+  dataset:
+    data:
+      data_request:
+        grid: [1.0, 1.0]
+        area: [90, 0, -89, 359]
+      variables_metadata:
+        sh2:
+          mars:
+            param: 2sh
+        t2m:
+          mars:
+            param: 2t
+        t_surface:
+          mars:
+            param: skt
+        sp:
+          mars:
+            param: sp
+        u10:
+          mars:
+            param: 10u
+        v10:
+          mars:
+            param: 10v
+        u_100:
+          mars:
+            param: 100u
+        u_200:
+          mars:
+            param: 200u
+        v_100:
+          mars:
+            param: 100v
+        v_200:
+          mars:
+            param: 200v
+
+
+output:
+  grib:
+    path: forecasts/2026-01-12T06.24h.grib
+    templates:
+      - samples:
+          - - {levtype: pl}
+            - global_one_degree_pl.grib2
+          - - {}
+            - global_one_degree_template.grib2
+    write_initial_state: true
+    variables:
+      drop:
+        - u80
+        - v80
